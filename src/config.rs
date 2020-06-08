@@ -39,7 +39,7 @@ impl Config {
             None => return Err(Box::new(Error("No dll path"))),
         }?;
 
-        Ok(Config {
+        Ok(Self {
             cur_exe,
             pid,
             dll_file,
