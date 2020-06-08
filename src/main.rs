@@ -2,6 +2,7 @@ use std::env;
 use std::error;
 
 mod config;
+mod winapiwrapper;
 
 use config::Config;
 
