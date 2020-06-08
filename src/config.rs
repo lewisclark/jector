@@ -23,7 +23,7 @@ pub struct Config {
 
 impl Config {
     pub fn from_args(args: &mut Args) -> Result<Self, Box<dyn error::Error>> {
-        let cur_exe = match (args.next()) {
+        let cur_exe = match args.next() {
             Some(path) => path,
             None => return Err(Box::new(Error("No current exe"))),
         };
