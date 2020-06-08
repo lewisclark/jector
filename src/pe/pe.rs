@@ -1,13 +1,11 @@
 use std::fs::File;
 use std::io::Read;
-use std::ptr;
 use crate::winapiwrapper::dosheader::DosHeader;
-
-type Image = Vec<u8>;
+use crate::winapiwrapper::coffheader::CoffHeader;
 
 #[derive(Debug)]
 pub struct Pe {
-	image: Image
+	image: Vec<u8>
 }
 
 impl Pe {
@@ -24,14 +22,11 @@ impl Pe {
 		DosHeader::from_ptr(self.image.as_ptr())
 	}
 
-	/*
-	pub fn pe_header(&self) -> PeHeader {
+	pub fn coff_header(&self) -> CoffHeader {
 		let pe_offset = self.dos_header().e_lfanew();
-		let address = (self.image.as_ptr() as usize) + pe_offset;
+		let coff_offset = self.image.as_ptr() as usize + pe_offset as usize + 0x4;
+		// + 0x4 to offset past the pe signature
 
-		unsafe {
-			ptr::read(address as *const u8)
-		}
+		CoffHeader::from_ptr(coff_offset as *const u8)
 	}
-	*/
 }
