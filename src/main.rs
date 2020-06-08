@@ -3,6 +3,7 @@ use std::error;
 
 mod config;
 mod winapiwrapper;
+mod pe;
 
 use config::Config;
 
