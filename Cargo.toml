@@ -5,4 +5,4 @@ authors = ["lewis <25719980+c4fe@users.noreply.github.com>"]
 edition = "2018"
 
 [dependencies]
-winapi = "0.3.8"
+winapi = { version = "0.3.8", features = ["winnt"] }
