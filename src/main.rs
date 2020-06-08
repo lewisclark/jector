@@ -2,8 +2,8 @@ use std::env;
 use std::error;
 
 mod config;
-mod winapiwrapper;
 mod pe;
+mod winapiwrapper;
 
 use config::Config;
 

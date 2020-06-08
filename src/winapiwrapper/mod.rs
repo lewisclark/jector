@@ -1,2 +1,2 @@
-pub mod dosheader;
 pub mod coffheader;
+pub mod dosheader;
