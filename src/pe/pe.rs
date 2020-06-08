@@ -1,9 +1,13 @@
 use std::fs::File;
 use std::io::Read;
+use std::ptr;
+use crate::winapiwrapper::dosheader::DosHeader;
+
+type Image = Vec<u8>;
 
 #[derive(Debug)]
 pub struct Pe {
-	image: Vec<u8>
+	image: Image
 }
 
 impl Pe {
@@ -16,11 +20,18 @@ impl Pe {
 		}
 	}
 
-	pub fn dos_header(&self) {
-
+	pub fn dos_header(&self) -> DosHeader {
+		DosHeader::from_ptr(self.image.as_ptr())
 	}
 
-	pub fn nt_header(&self) {
+	/*
+	pub fn pe_header(&self) -> PeHeader {
+		let pe_offset = self.dos_header().e_lfanew();
+		let address = (self.image.as_ptr() as usize) + pe_offset;
 
+		unsafe {
+			ptr::read(address as *const u8)
+		}
 	}
+	*/
 }
