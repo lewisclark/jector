@@ -38,5 +38,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 		_ => Err(Box::new(Error("Expected PE file".to_string())))
 	}?;
 
+	if !pe.is_lib {
+		return Err(Box::new(Error("Expected library PE file".to_string())));
+	}
+
     Ok(())
 }
