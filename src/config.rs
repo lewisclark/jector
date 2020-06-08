@@ -46,19 +46,19 @@ impl Config {
         })
     }
 
-	pub fn cur_exe(&self) -> &str {
-		&self.cur_exe
-	}
+    pub fn cur_exe(&self) -> &str {
+        &self.cur_exe
+    }
 
-	pub fn pid(&self) -> usize {
-		self.pid
-	}
+    pub fn pid(&self) -> usize {
+        self.pid
+    }
 
-	pub fn dll_file(&self) -> &File {
-		&self.dll_file
-	}
+    pub fn dll_file(&self) -> &File {
+        &self.dll_file
+    }
 
-	pub fn dll_file_mut(&mut self) -> &mut File {
-		&mut self.dll_file
-	}
+    pub fn dll_file_mut(&mut self) -> &mut File {
+        &mut self.dll_file
+    }
 }
