@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     println!("config: {:?}", config);
 
     let mut file_bytes = Vec::new();
-    config.dll_file_mut().read_to_end(&mut file_bytes);
+    config.dll_file_mut().read_to_end(&mut file_bytes)?;
 
     let pe = match goblin::Object::parse(file_bytes.as_slice())? {
         PE(pe) => Ok(pe),
