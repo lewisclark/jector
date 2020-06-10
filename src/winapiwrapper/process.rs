@@ -142,3 +142,12 @@ bitflags! {
 		const WriteOwner = winnt::WRITE_OWNER;
 	}
 }
+
+// FreeType
+
+bitflags! {
+	pub struct FreeType: u32 {
+		const MemDecommit = winnt::MEM_DECOMMIT;
+		const MemRelease = winnt::MEM_RELEASE;
+	}
+}
