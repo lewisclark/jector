@@ -1,6 +1,8 @@
 use super::error::Error;
 use super::freetype::FreeType;
 use super::process::Process;
+use super::alloctype::AllocType;
+use super::protectflag::ProtectFlag;
 use std::ffi::c_void;
 use std::ops::Drop;
 use std::ptr;
@@ -19,16 +21,16 @@ impl<'a> VirtualMem<'a> {
         process: &'a Process,
         address: usize,
         size: usize,
-        alloc_type: u32,
-        protect: u32,
+        alloc_type: AllocType,
+        protect: ProtectFlag,
     ) -> Result<Self, Error> {
         let mem = unsafe {
             VirtualAllocEx(
                 process.handle()?,
                 address as LPVOID,
                 size,
-                alloc_type,
-                protect,
+                alloc_type.bits(),
+                protect.bits(),
             )
         };
 
