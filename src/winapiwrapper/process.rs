@@ -1,4 +1,5 @@
 use std::ops::Drop;
+use std::ffi::c_void;
 use super::error::Error;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::processthreadsapi::{OpenProcess, GetCurrentProcess};
@@ -58,11 +59,13 @@ impl Drop for Process {
 
 // VirtualMem
 
-pub struct VirtualMem {
-
+pub struct VirtualMem<'a> {
+	process: &'a Process,
+	address: *const c_void,
+	size: usize
 }
 
-impl VirtualMem {
+impl VirtualMem<'_> {
         pub fn alloc(process: Process, address: *const c_void, size: usize, alloc_type: usize, protect: usize) {
 
 
@@ -73,7 +76,7 @@ impl VirtualMem {
         }
 }
 
-impl Drop for VirtualMem {
+impl Drop for VirtualMem<'_> {
         fn drop(&mut self) {
 
         }
