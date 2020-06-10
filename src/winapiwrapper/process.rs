@@ -134,7 +134,9 @@ impl<'a> VirtualMem<'a> {
 }
 
 impl Drop for VirtualMem<'_> {
-    fn drop(&mut self) {}
+    fn drop(&mut self) {
+		self.free(FreeType::MEM_RELEASE).unwrap();
+	}
 }
 
 // ProcessAccess
