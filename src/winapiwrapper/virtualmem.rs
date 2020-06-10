@@ -1,7 +1,7 @@
+use super::alloctype::AllocType;
 use super::error::Error;
 use super::freetype::FreeType;
 use super::process::Process;
-use super::alloctype::AllocType;
 use super::protectflag::ProtectFlag;
 use std::ffi::c_void;
 use std::ops::Drop;
@@ -83,19 +83,21 @@ impl<'a> VirtualMem<'a> {
         self.free_on_drop
     }
 
-	pub fn write(&mut self, src: *const c_void, size: usize) -> Result<(), Error> {
-		if size > self.size {
-			return Err(Error::new("Arg size is greater than buffer size".to_string()));
-		}
+    pub fn write(&mut self, src: *const c_void, size: usize) -> Result<(), Error> {
+        if size > self.size {
+            return Err(Error::new(
+                "Arg size is greater than buffer size".to_string(),
+            ));
+        }
 
-		if src.is_null() || self.address.is_null() {
-			return Err(Error::new("Src or buffer is null".to_string()));
-		}
+        if src.is_null() || self.address.is_null() {
+            return Err(Error::new("Src or buffer is null".to_string()));
+        }
 
-		unsafe { ptr::copy(src, self.address, size) }
+        unsafe { ptr::copy(src, self.address, size) }
 
-		Ok(())
-	}
+        Ok(())
+    }
 }
 
 impl Drop for VirtualMem<'_> {

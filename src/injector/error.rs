@@ -3,21 +3,19 @@ use std::fmt;
 
 #[derive(Debug)]
 pub struct Error {
-	err: String
+    err: String,
 }
 
 impl Error {
-	pub fn new(err: String) -> Self {
-		Self { err }
-	}
+    pub fn new(err: String) -> Self {
+        Self { err }
+    }
 }
 
 impl fmt::Display for Error {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "injector error: {}", self.err)
-	}
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "injector error: {}", self.err)
+    }
 }
 
-impl error::Error for Error {
-
-}
+impl error::Error for Error {}

@@ -8,8 +8,8 @@ use std::fmt;
 use std::io::Read;
 
 mod config;
-mod winapiwrapper;
 mod injector;
+mod winapiwrapper;
 
 use config::Config;
 
