@@ -14,8 +14,8 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn from_pid(pid: u32, access: u32, inherit: bool) -> Result<Self, Error> {
-        let handle = unsafe { OpenProcess(access, inherit as i32, pid) };
+    pub fn from_pid(pid: u32, access: ProcessAccess, inherit: bool) -> Result<Self, Error> {
+        let handle = unsafe { OpenProcess(access.bits, inherit as i32, pid) };
 
         if handle.is_null() {
             Err(Error::new("OpenProcess returned NULL".to_string()))
