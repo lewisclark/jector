@@ -1,6 +1,6 @@
 use std::ops::Drop;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::processthreadsapi::OpenProcess;
+use winapi::um::processthreadsapi::{OpenProcess, GetCurrentProcess};
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
@@ -13,6 +13,12 @@ impl Process {
 
         Self { handle }
     }
+
+	pub fn from_current() -> Self {
+		let handle = unsafe { GetCurrentProcess() };
+
+		Self { handle }
+	}
 
     pub fn close(&mut self) {
         if self.handle.is_null() {
