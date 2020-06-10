@@ -11,7 +11,13 @@ pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
     fn inject(pid: u32, pe: PE) -> Result<(), Box<dyn error::Error>> {
-		let process = Process::from_pid(pid, ProcessAccess::PROCESS_CREATE_THREAD | ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION | ProcessAccess::PROCESS_VM_OPERATION, false)?;
+        let process = Process::from_pid(
+            pid,
+            ProcessAccess::PROCESS_CREATE_THREAD
+                | ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION
+                | ProcessAccess::PROCESS_VM_OPERATION,
+            false,
+        )?;
 
         VirtualMem::alloc(
             &process,

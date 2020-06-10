@@ -12,8 +12,8 @@ mod injector;
 mod winapiwrapper;
 
 use config::Config;
-use injector::manualmap::ManualMapInjector;
 use injector::injector::Injector;
+use injector::manualmap::ManualMapInjector;
 
 #[derive(Debug)]
 struct Error(String);
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         return Err(Box::new(Error("Expected library PE file".to_string())));
     }
 
-	ManualMapInjector::inject(config.pid(), pe)?;
+    ManualMapInjector::inject(config.pid(), pe)?;
 
     Ok(())
 }
