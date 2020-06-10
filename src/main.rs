@@ -5,7 +5,6 @@ use std::fmt;
 use std::io::Read;
 
 mod config;
-mod pe;
 mod winapiwrapper;
 
 use config::Config;
