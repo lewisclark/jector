@@ -110,14 +110,18 @@ impl<'a> VirtualMem<'a> {
             ));
         }
 
-		let size = if freetype & FreeType::MEM_RELEASE == FreeType::MEM_RELEASE { 0 } else { self.size };
+        let size = if freetype & FreeType::MEM_RELEASE == FreeType::MEM_RELEASE {
+            0
+        } else {
+            self.size
+        };
 
         let ret = unsafe {
             VirtualFreeEx(
                 self.process.handle()?,
                 self.address as LPVOID,
                 size,
-                freetype.bits
+                freetype.bits,
             )
         };
 
@@ -136,20 +140,20 @@ impl Drop for VirtualMem<'_> {
 // ProcessAccess
 
 bitflags! {
-	pub struct ProcessAccess: u32 {
-		const DELETE = winnt::DELETE;
-		const READ_CONTROL = winnt::READ_CONTROL;
-		const SYNCHRONIZE = winnt::SYNCHRONIZE;
-		const WRITE_DAC = winnt::WRITE_DAC;
-		const WRITE_OWNER = winnt::WRITE_OWNER;
-	}
+    pub struct ProcessAccess: u32 {
+        const DELETE = winnt::DELETE;
+        const READ_CONTROL = winnt::READ_CONTROL;
+        const SYNCHRONIZE = winnt::SYNCHRONIZE;
+        const WRITE_DAC = winnt::WRITE_DAC;
+        const WRITE_OWNER = winnt::WRITE_OWNER;
+    }
 }
 
 // FreeType
 
 bitflags! {
-	pub struct FreeType: u32 {
-		const MEM_DECOMMIT = winnt::MEM_DECOMMIT;
-		const MEM_RELEASE = winnt::MEM_RELEASE;
-	}
+    pub struct FreeType: u32 {
+        const MEM_DECOMMIT = winnt::MEM_DECOMMIT;
+        const MEM_RELEASE = winnt::MEM_RELEASE;
+    }
 }
