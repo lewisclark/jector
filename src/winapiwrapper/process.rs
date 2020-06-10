@@ -4,6 +4,8 @@ use winapi::um::handleapi::CloseHandle;
 use winapi::um::processthreadsapi::{OpenProcess, GetCurrentProcess};
 use winapi::um::winnt::HANDLE;
 
+// Process
+
 pub struct Process {
     handle: HANDLE,
 }
@@ -52,4 +54,27 @@ impl Drop for Process {
     fn drop(&mut self) {
         self.close().unwrap();
     }
+}
+
+// VirtualMem
+
+pub struct VirtualMem {
+
+}
+
+impl VirtualMem {
+        pub fn alloc(process: Process, address: *const c_void, size: usize, alloc_type: usize, protect: usize) {
+
+
+        }
+
+        pub fn free(&mut self) {
+
+        }
+}
+
+impl Drop for VirtualMem {
+        fn drop(&mut self) {
+
+        }
 }
