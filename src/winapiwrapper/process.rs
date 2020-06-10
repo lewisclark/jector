@@ -5,7 +5,7 @@ use winapi::shared::minwindef::LPVOID;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
 use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcess};
-use winapi::um::winnt::HANDLE;
+use winapi::um::winnt::{self, HANDLE};
 
 // Process
 
@@ -129,4 +129,16 @@ impl<'a> VirtualMem<'a> {
 
 impl Drop for VirtualMem<'_> {
     fn drop(&mut self) {}
+}
+
+// ProcessAccess
+
+bitflags! {
+	pub struct ProcessAccess: u32 {
+		const Delete = winnt::DELETE;
+		const ReadControl = winnt::READ_CONTROL;
+		const Synchronize = winnt::SYNCHRONIZE;
+		const WriteDac = winnt::WRITE_DAC;
+		const WriteOwner = winnt::WRITE_OWNER;
+	}
 }
