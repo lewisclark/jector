@@ -135,11 +135,11 @@ impl Drop for VirtualMem<'_> {
 
 bitflags! {
 	pub struct ProcessAccess: u32 {
-		const Delete = winnt::DELETE;
-		const ReadControl = winnt::READ_CONTROL;
-		const Synchronize = winnt::SYNCHRONIZE;
-		const WriteDac = winnt::WRITE_DAC;
-		const WriteOwner = winnt::WRITE_OWNER;
+		const DELETE = winnt::DELETE;
+		const READ_CONTROL = winnt::READ_CONTROL;
+		const SYNCHRONIZE = winnt::SYNCHRONIZE;
+		const WRITE_DAC = winnt::WRITE_DAC;
+		const WRITE_OWNER = winnt::WRITE_OWNER;
 	}
 }
 
@@ -147,7 +147,7 @@ bitflags! {
 
 bitflags! {
 	pub struct FreeType: u32 {
-		const MemDecommit = winnt::MEM_DECOMMIT;
-		const MemRelease = winnt::MEM_RELEASE;
+		const MEM_DECOMMIT = winnt::MEM_DECOMMIT;
+		const MEM_RELEASE = winnt::MEM_RELEASE;
 	}
 }
