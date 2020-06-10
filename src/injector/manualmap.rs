@@ -1,14 +1,17 @@
 use goblin::pe::PE;
+use std::error;
 use super::injector::Injector;
-use super::error::Error;
 use crate::winapiwrapper::process::Process;
+use crate::winapiwrapper::virtualmem::VirtualMem;
 
 pub struct ManualMapInjector {
 
 }
 
 impl Injector for ManualMapInjector {
-	pub fn inject(process: Process, pe: PE) -> Result<(), Error> {
+	fn inject(process: Process, pe: PE) -> Result<(), Box<dyn error::Error>> {
+		VirtualMem::alloc(&process, 0, pe.size, 0, 0)?;
+
 		Ok(())
 	}
 }
