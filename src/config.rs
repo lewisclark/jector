@@ -17,7 +17,7 @@ impl error::Error for Error {}
 #[derive(Debug)]
 pub struct Config {
     cur_exe: String,
-    pid: usize,
+    pid: u32,
     dll_file: File,
 }
 
@@ -28,7 +28,7 @@ impl Config {
             None => return Err(Box::new(Error("No current exe"))),
         };
 
-        let pid: usize = match args.next() {
+        let pid: u32 = match args.next() {
             Some(pid) => pid,
             None => return Err(Box::new(Error("No pid"))),
         }
@@ -50,7 +50,7 @@ impl Config {
         &self.cur_exe
     }
 
-    pub fn pid(&self) -> usize {
+    pub fn pid(&self) -> u32 {
         self.pid
     }
 
