@@ -110,7 +110,7 @@ impl<'a> VirtualMem<'a> {
             ));
         }
 
-        let size = if freetype & FreeType::MEM_RELEASE == FreeType::MEM_RELEASE {
+        let size = if freetype.contains(FreeType::MEM_RELEASE) {
             0
         } else {
             self.size
