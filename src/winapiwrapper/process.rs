@@ -1,9 +1,9 @@
 use super::error::Error;
+use super::processaccess::ProcessAccess;
 use std::ops::Drop;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcess};
 use winapi::um::winnt::HANDLE;
-use super::processaccess::ProcessAccess;
 
 pub struct Process {
     handle: HANDLE,

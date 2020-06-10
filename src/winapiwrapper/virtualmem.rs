@@ -1,16 +1,16 @@
 use super::error::Error;
+use super::freetype::FreeType;
+use super::process::Process;
 use std::ffi::c_void;
 use std::ops::Drop;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
-use super::freetype::FreeType;
-use super::process::Process;
 
 pub struct VirtualMem<'a> {
     process: &'a Process,
     address: *const c_void,
     size: usize,
-	free_on_drop: bool
+    free_on_drop: bool,
 }
 
 impl<'a> VirtualMem<'a> {
@@ -38,7 +38,7 @@ impl<'a> VirtualMem<'a> {
                 process: process,
                 address: mem as *const c_void,
                 size: size,
-				free_on_drop: true
+                free_on_drop: true,
             })
         }
     }
@@ -72,19 +72,19 @@ impl<'a> VirtualMem<'a> {
         }
     }
 
-	pub fn set_free_on_drop(&mut self, free_on_drop: bool) {
-		self.free_on_drop = free_on_drop
-	}
+    pub fn set_free_on_drop(&mut self, free_on_drop: bool) {
+        self.free_on_drop = free_on_drop
+    }
 
-	pub fn free_on_drop(&self) -> bool {
-		self.free_on_drop
-	}
+    pub fn free_on_drop(&self) -> bool {
+        self.free_on_drop
+    }
 }
 
 impl Drop for VirtualMem<'_> {
     fn drop(&mut self) {
-		if self.free_on_drop {
-			self.free(FreeType::MEM_RELEASE).unwrap();
-		}
-	}
+        if self.free_on_drop {
+            self.free(FreeType::MEM_RELEASE).unwrap();
+        }
+    }
 }
