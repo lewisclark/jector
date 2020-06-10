@@ -3,12 +3,13 @@ use super::freetype::FreeType;
 use super::process::Process;
 use std::ffi::c_void;
 use std::ops::Drop;
+use std::ptr;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
 
 pub struct VirtualMem<'a> {
     process: &'a Process,
-    address: *const c_void,
+    address: *mut c_void,
     size: usize,
     free_on_drop: bool,
 }
@@ -36,7 +37,7 @@ impl<'a> VirtualMem<'a> {
         } else {
             Ok(Self {
                 process: process,
-                address: mem as *const c_void,
+                address: mem as *mut c_void,
                 size: size,
                 free_on_drop: true,
             })
@@ -79,6 +80,20 @@ impl<'a> VirtualMem<'a> {
     pub fn free_on_drop(&self) -> bool {
         self.free_on_drop
     }
+
+	pub fn write(&mut self, src: *const c_void, size: usize) -> Result<(), Error> {
+		if size > self.size {
+			return Err(Error::new("Arg size is greater than buffer size".to_string()));
+		}
+
+		if src.is_null() || self.address.is_null() {
+			return Err(Error::new("Src or buffer is null".to_string()));
+		}
+
+		unsafe { ptr::copy(src, self.address, size) }
+
+		Ok(())
+	}
 }
 
 impl Drop for VirtualMem<'_> {
