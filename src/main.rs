@@ -9,6 +9,7 @@ use std::io::Read;
 
 mod config;
 mod winapiwrapper;
+mod injector;
 
 use config::Config;
 
