@@ -103,19 +103,21 @@ impl<'a> VirtualMem<'a> {
         }
     }
 
-    pub fn free(&mut self, freetype: u32) -> Result<(), Error> {
+    pub fn free(&mut self, freetype: FreeType) -> Result<(), Error> {
         if self.address.is_null() {
             return Err(Error::new(
                 "Tried to free null virtual memory region".to_string(),
             ));
         }
 
+		let size = if freetype & FreeType::MEM_RELEASE == FreeType::MEM_RELEASE { 0 } else { self.size };
+
         let ret = unsafe {
             VirtualFreeEx(
                 self.process.handle()?,
                 self.address as LPVOID,
-                self.size,
-                freetype,
+                size,
+                freetype.bits
             )
         };
 
