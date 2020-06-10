@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate bitflags;
+
 use goblin::Object::PE;
 use std::env;
 use std::error;
