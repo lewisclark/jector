@@ -12,7 +12,7 @@ use std::error;
 pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
-    fn inject(pid: u32, pe: PE) -> Result<(), Box<dyn error::Error>> {
+    fn inject(pid: u32, pe: PE, image: &Vec<u8>) -> Result<(), Box<dyn error::Error>> {
 		let hdr = pe.header;
 		let doshdr = hdr.dos_header;
 		let coffhdr = hdr.coff_header;
@@ -46,8 +46,6 @@ impl Injector for ManualMapInjector {
         let mut buf = ByteBuffer::new();
 		buf.resize(pe_size);
 		buf.set_endian(Endian::LittleEndian);
-
-		buf.write_bytes(&hdr.signature.to_le_bytes());
 
         mem.write(buf.to_bytes().as_ptr(), buf.len())?;
 

@@ -3,5 +3,5 @@ use std::error;
 
 pub trait Injector {
     // TODO: Return base address of injected pe
-    fn inject(pid: u32, pe: PE) -> Result<(), Box<dyn error::Error>>;
+    fn inject(pid: u32, pe: PE, image: &Vec<u8>) -> Result<(), Box<dyn error::Error>>;
 }

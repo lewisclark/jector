@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         return Err(Box::new(Error("Expected library PE file".to_string())));
     }
 
-    ManualMapInjector::inject(config.pid(), pe)?;
+    ManualMapInjector::inject(config.pid(), pe, &file_bytes)?;
 
     Ok(())
 }
