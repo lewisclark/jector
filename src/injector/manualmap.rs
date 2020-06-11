@@ -12,7 +12,10 @@ pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
     fn inject(pid: u32, pe: PE) -> Result<(), Box<dyn error::Error>> {
-		let opthdr = pe.header.optional_header.unwrap(); // error if None
+		let opthdr = match pe.header.optional_header {
+			Some(header) => Ok(header),
+			None => Err(Box::new(Error::new("No optional header".to_string())))
+		}?;
 
         let process = Process::from_pid(
 			pid,
