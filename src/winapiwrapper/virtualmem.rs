@@ -98,6 +98,18 @@ impl<'a> VirtualMem<'a> {
 
         Ok(())
     }
+
+	pub fn process(&self) -> &Process {
+		self.process
+	}
+
+	pub fn address(&self) -> *const c_void {
+		self.address
+	}
+
+	pub fn size(&self) -> usize {
+		self.size
+	}
 }
 
 impl Drop for VirtualMem<'_> {
