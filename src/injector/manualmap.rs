@@ -47,6 +47,9 @@ impl Injector for ManualMapInjector {
 		buf.resize(pe_size);
 		buf.set_endian(Endian::LittleEndian);
 
+		// Write headers
+		buf.write_bytes(&image[..opthdr.windows_fields.size_of_headers as usize]);
+
         mem.write(buf.to_bytes().as_ptr(), buf.len())?;
 
         Ok(())
