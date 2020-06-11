@@ -22,13 +22,15 @@ impl Injector for ManualMapInjector {
             false,
         )?;
 
-        let mem = VirtualMem::alloc(
+        let mut mem = VirtualMem::alloc(
             &process,
             0,
             opthdr.windows_fields.size_of_image as usize,
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_EXECUTE_READWRITE,
         )?;
+
+		mem.set_free_on_drop(false);
 
         Ok(())
     }
