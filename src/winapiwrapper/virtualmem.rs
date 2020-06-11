@@ -3,8 +3,8 @@ use super::error::Error;
 use super::freetype::FreeType;
 use super::process::Process;
 use super::protectflag::ProtectFlag;
-use winapi::ctypes::c_void;
 use std::ops::Drop;
+use winapi::ctypes::c_void;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx, WriteProcessMemory};
 
@@ -93,28 +93,34 @@ impl<'a> VirtualMem<'a> {
             return Err(Error::new("Allocated memory is null".to_string()));
         }
 
-		let ret = unsafe {
-			WriteProcessMemory(self.process.handle()?, self.address, src as *const c_void, size, 0 as *mut usize)
-		};
+        let ret = unsafe {
+            WriteProcessMemory(
+                self.process.handle()?,
+                self.address,
+                src as *const c_void,
+                size,
+                0 as *mut usize,
+            )
+        };
 
-		if ret == 0 {
-			Err(Error::new("WriteProcesMemory failed".to_string()))
-		} else {
-			Ok(())
-		}
+        if ret == 0 {
+            Err(Error::new("WriteProcesMemory failed".to_string()))
+        } else {
+            Ok(())
+        }
     }
 
-	pub fn process(&self) -> &Process {
-		self.process
-	}
+    pub fn process(&self) -> &Process {
+        self.process
+    }
 
-	pub fn address(&self) -> *const c_void {
-		self.address
-	}
+    pub fn address(&self) -> *const c_void {
+        self.address
+    }
 
-	pub fn size(&self) -> usize {
-		self.size
-	}
+    pub fn size(&self) -> usize {
+        self.size
+    }
 }
 
 impl Drop for VirtualMem<'_> {

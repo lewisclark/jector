@@ -1,5 +1,5 @@
-use super::injector::Injector;
 use super::error::Error;
+use super::injector::Injector;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
@@ -12,20 +12,20 @@ pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
     fn inject(pid: u32, pe: PE) -> Result<(), Box<dyn error::Error>> {
-		let opthdr = match pe.header.optional_header {
-			Some(header) => Ok(header),
-			None => Err(Box::new(Error::new("No optional header".to_string())))
-		}?;
+        let opthdr = match pe.header.optional_header {
+            Some(header) => Ok(header),
+            None => Err(Box::new(Error::new("No optional header".to_string()))),
+        }?;
 
-		let pe_size = opthdr.windows_fields.size_of_image as usize;
+        let pe_size = opthdr.windows_fields.size_of_image as usize;
 
         let process = Process::from_pid(
-			pid,
-			ProcessAccess::PROCESS_CREATE_THREAD
-				| ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION
-				| ProcessAccess::PROCESS_VM_OPERATION
-				| ProcessAccess::PROCESS_VM_READ
-				| ProcessAccess::PROCESS_VM_WRITE,
+            pid,
+            ProcessAccess::PROCESS_CREATE_THREAD
+                | ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION
+                | ProcessAccess::PROCESS_VM_OPERATION
+                | ProcessAccess::PROCESS_VM_READ
+                | ProcessAccess::PROCESS_VM_WRITE,
             false,
         )?;
 
@@ -37,18 +37,16 @@ impl Injector for ManualMapInjector {
             ProtectFlag::PAGE_EXECUTE_READWRITE,
         )?;
 
-		mem.set_free_on_drop(false);
+        mem.set_free_on_drop(false);
 
-		let mut buf: Vec<u8> = Vec::with_capacity(pe_size);
+        let mut buf: Vec<u8> = Vec::with_capacity(pe_size);
 
-		write_dos_header();
+        write_dos_header();
 
-		mem.write(buf.as_ptr(), buf.len())?;
+        mem.write(buf.as_ptr(), buf.len())?;
 
         Ok(())
     }
 }
 
-fn write_dos_header() {
-
-}
+fn write_dos_header() {}
