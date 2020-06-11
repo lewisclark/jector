@@ -6,13 +6,17 @@ use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use goblin::pe::PE;
+use bytebuffer::{Endian, ByteBuffer};
 use std::error;
 
 pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
     fn inject(pid: u32, pe: PE) -> Result<(), Box<dyn error::Error>> {
-        let opthdr = match pe.header.optional_header {
+		let hdr = pe.header;
+		let doshdr = hdr.dos_header;
+		let coffhdr = hdr.coff_header;
+        let opthdr = match hdr.optional_header {
             Some(header) => Ok(header),
             None => Err(Box::new(Error::new("No optional header".to_string()))),
         }?;
@@ -39,14 +43,14 @@ impl Injector for ManualMapInjector {
 
         mem.set_free_on_drop(false);
 
-        let mut buf: Vec<u8> = Vec::with_capacity(pe_size);
+        let mut buf = ByteBuffer::new();
+		buf.resize(pe_size);
+		buf.set_endian(Endian::LittleEndian);
 
-        write_dos_header();
+		buf.write_bytes(&hdr.signature.to_le_bytes());
 
-        mem.write(buf.as_ptr(), buf.len())?;
+        mem.write(buf.to_bytes().as_ptr(), buf.len())?;
 
         Ok(())
     }
 }
-
-fn write_dos_header() {}

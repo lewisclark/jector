@@ -7,6 +7,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
 
 [[package]]
+name = "bytebuffer-rs"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd71ac7b1de8c3d51bb8ab0f7176ed8a1d839f56586bd5b37405c8034850c90f"
+dependencies = [
+ "byteorder",
+]
+
+[[package]]
+name = "byteorder"
+version = "1.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08c48aae112d48ed9f069b33538ea9e3e90aa263cfa3d1c24309612b1f7472de"
+
+[[package]]
 name = "cfg-if"
 version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -37,6 +52,7 @@ name = "manualmap-rs"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "bytebuffer-rs",
  "goblin",
  "winapi",
 ]

@@ -8,3 +8,4 @@ edition = "2018"
 winapi = { version = "0.3.8", features = ["winnt", "processthreadsapi", "handleapi", "memoryapi"] }
 goblin = "0.2.3"
 bitflags = "1.2.1"
+bytebuffer-rs = "0.3.1"
