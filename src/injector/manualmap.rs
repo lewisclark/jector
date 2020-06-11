@@ -50,6 +50,15 @@ impl Injector for ManualMapInjector {
 		// Write headers
 		buf.write_bytes(&image[..opthdr.windows_fields.size_of_headers as usize]);
 
+		// Write sections
+		for section in pe.sections {
+			let start = section.pointer_to_raw_data as usize;
+			let size = section.size_of_raw_data as usize;
+
+			buf.set_wpos(section.virtual_address as usize);
+			buf.write_bytes(&image[start..start + size]);
+		}
+
         mem.write(buf.to_bytes().as_ptr(), buf.len())?;
 
         Ok(())
