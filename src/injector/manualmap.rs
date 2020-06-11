@@ -1,4 +1,5 @@
 use super::injector::Injector;
+use super::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
@@ -11,18 +12,20 @@ pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
     fn inject(pid: u32, pe: PE) -> Result<(), Box<dyn error::Error>> {
+		let opthdr = pe.header.optional_header.unwrap(); // error if None
+
         let process = Process::from_pid(
-            pid,
-            ProcessAccess::PROCESS_CREATE_THREAD
-                | ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION
-                | ProcessAccess::PROCESS_VM_OPERATION,
+			pid,
+			ProcessAccess::PROCESS_CREATE_THREAD
+				| ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION
+				| ProcessAccess::PROCESS_VM_OPERATION,
             false,
         )?;
 
-        VirtualMem::alloc(
+        let mem = VirtualMem::alloc(
             &process,
             0,
-            pe.size,
+            opthdr.windows_fields.size_of_image as usize,
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_EXECUTE_READWRITE,
         )?;
