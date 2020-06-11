@@ -3,11 +3,10 @@ use super::error::Error;
 use super::freetype::FreeType;
 use super::process::Process;
 use super::protectflag::ProtectFlag;
-use std::ffi::c_void;
+use winapi::ctypes::c_void;
 use std::ops::Drop;
-use std::ptr;
 use winapi::shared::minwindef::LPVOID;
-use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
+use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx, WriteProcessMemory};
 
 pub struct VirtualMem<'a> {
     process: &'a Process,
@@ -83,20 +82,26 @@ impl<'a> VirtualMem<'a> {
         self.free_on_drop
     }
 
-    pub fn write(&mut self, src: *const c_void, size: usize) -> Result<(), Error> {
+    pub fn write(&mut self, src: *const u8, size: usize) -> Result<(), Error> {
         if size > self.size {
             return Err(Error::new(
                 "Arg size is greater than buffer size".to_string(),
             ));
         }
 
-        if src.is_null() || self.address.is_null() {
-            return Err(Error::new("Src or buffer is null".to_string()));
+        if self.address.is_null() {
+            return Err(Error::new("Allocated memory is null".to_string()));
         }
 
-        unsafe { ptr::copy(src, self.address, size) }
+		let ret = unsafe {
+			WriteProcessMemory(self.process.handle()?, self.address, src as *const c_void, size, 0 as *mut usize)
+		};
 
-        Ok(())
+		if ret == 0 {
+			Err(Error::new("WriteProcesMemory failed".to_string()))
+		} else {
+			Ok(())
+		}
     }
 
 	pub fn process(&self) -> &Process {
