@@ -8,6 +8,8 @@ use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
 use goblin::pe::PE;
 use std::error;
+use std::mem;
+use std::slice;
 
 pub struct ManualMapInjector {}
 
@@ -23,6 +25,7 @@ impl Injector for ManualMapInjector {
 
         let pe_size = opthdr.windows_fields.size_of_image as usize;
 
+        // Obtain target process handle
         let process = Process::from_pid(
             pid,
             ProcessAccess::PROCESS_CREATE_THREAD
@@ -33,6 +36,7 @@ impl Injector for ManualMapInjector {
             false,
         )?;
 
+        // Allocate a buffer inside target process for the image
         let mut image_mem = VirtualMem::alloc(
             &process,
             0,
@@ -47,10 +51,10 @@ impl Injector for ManualMapInjector {
         image_buf.resize(pe_size);
         image_buf.set_endian(Endian::LittleEndian);
 
-        // Write headers
+        // Write image headers
         image_buf.write_bytes(&image[..opthdr.windows_fields.size_of_headers as usize]);
 
-        // Write sections
+        // Write image sections
         for section in pe.sections {
             let start = section.pointer_to_raw_data as usize;
             let size = section.size_of_raw_data as usize;
@@ -76,6 +80,12 @@ impl Injector for ManualMapInjector {
         loader_buf.resize(8092);
         loader_buf.set_endian(Endian::LittleEndian);
 
+        // Write loader fn to loader buffer
+        let loader_fn_ptr =
+            unsafe { slice::from_raw_parts(loader as *const u8, mem::size_of::<usize>()) };
+
+        loader_buf.write_bytes(&loader_fn_ptr);
+
         // Write loader buffer to loader memory
         loader_mem.write(loader_buf.to_bytes().as_ptr(), loader_buf.len())?;
 
@@ -87,4 +97,7 @@ impl Injector for ManualMapInjector {
 
 struct LoaderInfo {}
 
-extern "system" fn loader() {}
+#[no_mangle]
+extern "system" fn loader() {
+    println!("hi");
+}
