@@ -4,4 +4,5 @@ pub mod freetype;
 pub mod process;
 pub mod processaccess;
 pub mod protectflag;
+pub mod remotethread;
 pub mod virtualmem;
