@@ -4,12 +4,13 @@ use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
-use crate::winapiwrapper::remotethread::RemoteThread;
+use crate::winapiwrapper::remotethread::{self, RemoteThread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
 use goblin::pe::PE;
 use std::error;
+use std::ffi::c_void;
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
@@ -51,7 +52,7 @@ impl Injector for ManualMapInjector {
         image_mem.set_free_on_drop(false);
 
         let mut image_buf = ByteBuffer::new();
-        image_buf.resize(pe_size);
+        image_buf.resize(image_mem.size());
         image_buf.set_endian(Endian::LittleEndian);
 
         // Write image headers
@@ -73,14 +74,14 @@ impl Injector for ManualMapInjector {
         let mut loader_mem = VirtualMem::alloc(
             &process,
             0,
-            pe_size,
+            512,
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_EXECUTE_READWRITE,
         )?;
 
         // Initialize loader buffer
         let mut loader_buf = ByteBuffer::new();
-        loader_buf.resize(8092);
+        loader_buf.resize(loader_mem.size());
         loader_buf.set_endian(Endian::LittleEndian);
 
         // Write loader fn to loader buffer
@@ -92,12 +93,19 @@ impl Injector for ManualMapInjector {
         // Write loader buffer to loader memory
         loader_mem.write(loader_buf.to_bytes().as_ptr(), loader_buf.len())?;
 
+        // Transmute the loader buffer into a function pointer
+        let loader_mem_as_fn = unsafe {
+            std::mem::transmute::<*const winapic_void, remotethread::StartRoutine>(
+                loader_mem.address(),
+            )
+        };
+
         // Spawn a thread to execute the loader buffer in the target process
         let thread = RemoteThread::new(
             &process,
             None,
             None,
-            loader,
+            loader_mem_as_fn,
             None,
             ThreadCreationFlags::IMMEDIATE,
             None,
@@ -111,7 +119,6 @@ impl Injector for ManualMapInjector {
 
 struct LoaderInfo {}
 
-#[no_mangle]
-unsafe extern "system" fn loader(param: *mut winapic_void) -> u32 {
+extern "system" fn loader(param: *mut winapic_void) -> u32 {
     0
 }
