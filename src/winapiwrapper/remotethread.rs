@@ -7,10 +7,13 @@ use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
 use winapi::um::processthreadsapi::CreateRemoteThread;
+use winapi::um::winnt::HANDLE;
 
 pub type StartRoutine = unsafe extern "system" fn(*mut winapic_void) -> u32;
 
-pub struct RemoteThread {}
+pub struct RemoteThread {
+    handle: HANDLE,
+}
 
 impl RemoteThread {
     pub fn new(
@@ -47,7 +50,7 @@ impl RemoteThread {
         if handle.is_null() {
             Err(Error::new("CreateRemoteThread returned NULL".to_string()))
         } else {
-            Ok(Self {})
+            Ok(Self { handle })
         }
     }
 }
