@@ -19,10 +19,10 @@ impl RemoteThread {
     pub fn new(
         process: &Process,
         thread_attributes: Option<&SecurityAttributes>,
-        stack_size: usize,
+        stack_size: Option<usize>,
         routine: StartRoutine,
-        param: *mut c_void,
-        creation_flags: &ThreadCreationFlags,
+        param: Option<*mut c_void>,
+        creation_flags: ThreadCreationFlags,
         thread_id: Option<&mut u32>,
     ) -> Result<Self, Error> {
         let thread_attributes = match thread_attributes {
@@ -35,13 +35,18 @@ impl RemoteThread {
             None => ptr::null(),
         } as *mut u32;
 
+        let param = match param {
+            Some(p) => p,
+            None => ptr::null(),
+        } as *mut winapic_void;
+
         let handle = unsafe {
             CreateRemoteThread(
                 process.handle()?,
                 thread_attributes,
-                stack_size,
+                stack_size.unwrap_or(0),
                 Some(routine),
-                param as *mut winapic_void,
+                param,
                 creation_flags.bits(),
                 thread_id,
             )
