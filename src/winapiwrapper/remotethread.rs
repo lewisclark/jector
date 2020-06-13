@@ -1,6 +1,8 @@
 use super::error::Error;
 use super::process::Process;
+use super::securityattributes::SecurityAttributes;
 use std::ffi::c_void;
+use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
 use winapi::um::processthreadsapi::CreateRemoteThread;
@@ -12,7 +14,7 @@ pub struct RemoteThread {}
 impl RemoteThread {
     pub fn new(
         process: &Process,
-        thread_attributes: *const c_void,
+        thread_attributes: Option<&SecurityAttributes>,
         stack_size: usize,
         routine: StartRoutine,
         param: *mut c_void,
@@ -20,9 +22,14 @@ impl RemoteThread {
         thread_id: *mut u32,
     ) -> Result<Self, Error> {
         let handle = unsafe {
+            let thread_attributes = match thread_attributes {
+                Some(att) => att,
+                None => ptr::null(),
+            } as *mut SECURITY_ATTRIBUTES;
+
             CreateRemoteThread(
                 process.handle()?,
-                thread_attributes as *mut SECURITY_ATTRIBUTES,
+                thread_attributes,
                 stack_size,
                 Some(routine),
                 param as *mut winapic_void,
