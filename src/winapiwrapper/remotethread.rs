@@ -20,14 +20,19 @@ impl RemoteThread {
         routine: StartRoutine,
         param: *mut c_void,
         creation_flags: &ThreadCreationFlags,
-        thread_id: *mut u32,
+        thread_id: Option<&mut u32>,
     ) -> Result<Self, Error> {
-        let handle = unsafe {
-            let thread_attributes = match thread_attributes {
-                Some(att) => att,
-                None => ptr::null(),
-            } as *mut SECURITY_ATTRIBUTES;
+        let thread_attributes = match thread_attributes {
+            Some(att) => att,
+            None => ptr::null(),
+        } as *mut SECURITY_ATTRIBUTES;
 
+        let thread_id = match thread_id {
+            Some(id) => id,
+            None => ptr::null(),
+        } as *mut u32;
+
+        let handle = unsafe {
             CreateRemoteThread(
                 process.handle()?,
                 thread_attributes,
