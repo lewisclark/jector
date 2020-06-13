@@ -5,7 +5,7 @@ authors = ["lewis <25719980+c4fe@users.noreply.github.com>"]
 edition = "2018"
 
 [dependencies]
-winapi = { version = "0.3.8", features = ["winnt", "processthreadsapi", "handleapi", "memoryapi"] }
+winapi = { version = "0.3.8", features = ["winnt", "processthreadsapi", "handleapi", "memoryapi", "winbase"] }
 goblin = "0.2.3"
 bitflags = "1.2.1"
 bytebuffer-rs = "0.3.1"
