@@ -51,6 +51,7 @@ impl Injector for ManualMapInjector {
 
         image_mem.set_free_on_drop(false);
 
+        // Initialize image buffer
         let mut image_buf = ByteBuffer::new();
         image_buf.resize(image_mem.size());
         image_buf.set_endian(Endian::LittleEndian);
@@ -116,7 +117,6 @@ impl Injector for ManualMapInjector {
 }
 
 // Loader
-
 struct LoaderInfo {}
 
 extern "system" fn loader(param: *mut winapic_void) -> u32 {
