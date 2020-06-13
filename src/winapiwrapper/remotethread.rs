@@ -1,6 +1,7 @@
 use super::error::Error;
 use super::process::Process;
 use super::securityattributes::SecurityAttributes;
+use super::threadcreationflags::ThreadCreationFlags;
 use std::ffi::c_void;
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
@@ -18,7 +19,7 @@ impl RemoteThread {
         stack_size: usize,
         routine: StartRoutine,
         param: *mut c_void,
-        creation_flags: u32,
+        creation_flags: &ThreadCreationFlags,
         thread_id: *mut u32,
     ) -> Result<Self, Error> {
         let handle = unsafe {
@@ -33,7 +34,7 @@ impl RemoteThread {
                 stack_size,
                 Some(routine),
                 param as *mut winapic_void,
-                creation_flags,
+                creation_flags.bits(),
                 thread_id,
             )
         };
