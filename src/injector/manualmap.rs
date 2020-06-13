@@ -29,7 +29,7 @@ impl Injector for ManualMapInjector {
         let process = Process::from_pid(
             pid,
             ProcessAccess::PROCESS_CREATE_THREAD
-                | ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION
+                | ProcessAccess::PROCESS_QUERY_INFORMATION
                 | ProcessAccess::PROCESS_VM_OPERATION
                 | ProcessAccess::PROCESS_VM_READ
                 | ProcessAccess::PROCESS_VM_WRITE,
