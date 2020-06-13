@@ -4,12 +4,15 @@ use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
+use crate::winapiwrapper::remotethread::RemoteThread;
+use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
 use goblin::pe::PE;
 use std::error;
 use std::mem;
 use std::slice;
+use winapi::ctypes::c_void as winapic_void;
 
 pub struct ManualMapInjector {}
 
@@ -89,6 +92,17 @@ impl Injector for ManualMapInjector {
         // Write loader buffer to loader memory
         loader_mem.write(loader_buf.to_bytes().as_ptr(), loader_buf.len())?;
 
+        // Spawn a thread to execute the loader buffer in the target process
+        let thread = RemoteThread::new(
+            &process,
+            None,
+            None,
+            loader,
+            None,
+            ThreadCreationFlags::IMMEDIATE,
+            None,
+        )?;
+
         Ok(())
     }
 }
@@ -98,6 +112,6 @@ impl Injector for ManualMapInjector {
 struct LoaderInfo {}
 
 #[no_mangle]
-extern "system" fn loader() {
-    println!("hi");
+unsafe extern "system" fn loader(param: *mut winapic_void) -> u32 {
+    0
 }
