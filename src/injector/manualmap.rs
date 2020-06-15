@@ -10,7 +10,6 @@ use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
 use goblin::pe::PE;
 use std::error;
-use std::ffi::c_void;
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
@@ -19,10 +18,7 @@ pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
     fn inject(pid: u32, pe: PE, image: &Vec<u8>) -> Result<(), Box<dyn error::Error>> {
-        let hdr = pe.header;
-        let doshdr = hdr.dos_header;
-        let coffhdr = hdr.coff_header;
-        let opthdr = match hdr.optional_header {
+        let opthdr = match pe.header.optional_header {
             Some(header) => Ok(header),
             None => Err(Box::new(Error::new("No optional header".to_string()))),
         }?;
@@ -102,7 +98,7 @@ impl Injector for ManualMapInjector {
         };
 
         // Spawn a thread to execute the loader buffer in the target process
-        let thread = RemoteThread::new(
+        let _thread = RemoteThread::new(
             &process,
             None,
             None,
@@ -119,6 +115,6 @@ impl Injector for ManualMapInjector {
 // Loader
 struct LoaderInfo {}
 
-extern "system" fn loader(param: *mut winapic_void) -> u32 {
+extern "system" fn loader(_param: *mut winapic_void) -> u32 {
     0
 }

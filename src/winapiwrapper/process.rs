@@ -2,7 +2,7 @@ use super::error::Error;
 use super::processaccess::ProcessAccess;
 use std::ops::Drop;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcess};
+use winapi::um::processthreadsapi::OpenProcess;
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
@@ -12,16 +12,6 @@ pub struct Process {
 impl Process {
     pub fn from_pid(pid: u32, access: ProcessAccess, inherit: bool) -> Result<Self, Error> {
         let handle = unsafe { OpenProcess(access.bits(), inherit as i32, pid) };
-
-        if handle.is_null() {
-            Err(Error::new("OpenProcess returned NULL".to_string()))
-        } else {
-            Ok(Self { handle })
-        }
-    }
-
-    pub fn from_current() -> Result<Self, Error> {
-        let handle = unsafe { GetCurrentProcess() };
 
         if handle.is_null() {
             Err(Error::new("OpenProcess returned NULL".to_string()))
