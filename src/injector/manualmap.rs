@@ -81,11 +81,11 @@ impl Injector for ManualMapInjector {
         loader_buf.resize(loader_mem.size());
         loader_buf.set_endian(Endian::LittleEndian);
 
-        // Write loader fn to loader buffer
-        let loader_fn_ptr =
-            unsafe { slice::from_raw_parts(loader as *const u8, mem::size_of::<usize>()) };
+        // Write loader fn bytes to loader buffer
+        let loader_fn_bytes =
+            unsafe { slice::from_raw_parts(loader as *const u8, loader_mem.size()) };
 
-        loader_buf.write_bytes(&loader_fn_ptr);
+        loader_buf.write_bytes(&loader_fn_bytes);
 
         // Write loader buffer to loader memory
         loader_mem.write(loader_buf.to_bytes().as_ptr(), loader_buf.len())?;
@@ -113,8 +113,15 @@ impl Injector for ManualMapInjector {
 }
 
 // Loader
+#[repr(C)]
 struct LoaderInfo {}
 
-extern "system" fn loader(_param: *mut winapic_void) -> u32 {
-    0
+extern "C" fn loader(_param: *mut winapi_cvoid) -> u32 {
+    let mut n = 0;
+
+    while n < 100 {
+        n += 1;
+    }
+
+    n
 }
