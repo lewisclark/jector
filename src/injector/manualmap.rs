@@ -10,9 +10,9 @@ use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
 use goblin::pe::PE;
 use std::error;
+use std::ffi::c_void;
 use std::mem;
 use std::slice;
-use std::ffi::c_void;
 use winapi::ctypes::c_void as winapic_void;
 
 pub struct ManualMapInjector {}
@@ -34,7 +34,7 @@ impl Injector for ManualMapInjector {
                 | ProcessAccess::PROCESS_VM_OPERATION
                 | ProcessAccess::PROCESS_VM_READ
                 | ProcessAccess::PROCESS_VM_WRITE
-				| ProcessAccess::SYNCHRONIZE,
+                | ProcessAccess::SYNCHRONIZE,
             false,
         )?;
 
@@ -83,19 +83,25 @@ impl Injector for ManualMapInjector {
         loader_buf.resize(loader_mem.size());
         loader_buf.set_endian(Endian::LittleEndian);
 
-		// Construct LoaderInfo
-		let loaderinfo = LoaderInfo {
-			data: u64::max_value()
-		};
+        // Construct LoaderInfo
+        let loaderinfo = LoaderInfo {
+            data: u64::max_value(),
+        };
 
-		// Write LoaderInfo to loader buffer
-		let loaderinfo_bytes = unsafe { slice::from_raw_parts(&loaderinfo as *const LoaderInfo as *const u8, mem::size_of::<LoaderInfo>()) };
+        // Write LoaderInfo to loader buffer
+        let loaderinfo_bytes = unsafe {
+            slice::from_raw_parts(
+                &loaderinfo as *const LoaderInfo as *const u8,
+                mem::size_of::<LoaderInfo>(),
+            )
+        };
 
-		loader_buf.write_bytes(&loaderinfo_bytes);
+        loader_buf.write_bytes(&loaderinfo_bytes);
 
         // Write loader fn bytes to loader buffer
-        let loader_fn_bytes =
-            unsafe { slice::from_raw_parts(loader as *const u8, loader_end as usize - loader as usize) };
+        let loader_fn_bytes = unsafe {
+            slice::from_raw_parts(loader as *const u8, loader_end as usize - loader as usize)
+        };
 
         loader_buf.write_bytes(&loader_fn_bytes);
 
@@ -105,7 +111,8 @@ impl Injector for ManualMapInjector {
         // Transmute the loader buffer into a function pointer
         let loader_mem_as_fn = unsafe {
             std::mem::transmute::<*const winapic_void, remotethread::StartRoutine>(
-                (loader_mem.address() as usize + mem::size_of::<LoaderInfo>()) as *const winapic_void,
+                (loader_mem.address() as usize + mem::size_of::<LoaderInfo>())
+                    as *const winapic_void,
             )
         };
 
@@ -120,7 +127,7 @@ impl Injector for ManualMapInjector {
             None,
         )?;
 
-		thread.wait(10000)?;
+        thread.wait(10000)?;
 
         Ok(())
     }
@@ -129,7 +136,7 @@ impl Injector for ManualMapInjector {
 // Loader
 #[repr(C)]
 struct LoaderInfo {
-	data: u64
+    data: u64,
 }
 
 extern "C" fn loader(_param: *mut winapic_void) -> u32 {
@@ -142,6 +149,4 @@ extern "C" fn loader(_param: *mut winapic_void) -> u32 {
     n
 }
 
-extern "C" fn loader_end() {
-
-}
+extern "C" fn loader_end() {}

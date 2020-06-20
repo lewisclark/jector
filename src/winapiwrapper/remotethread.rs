@@ -7,9 +7,9 @@ use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
 use winapi::um::processthreadsapi::{CreateRemoteThread, GetExitCodeProcess};
-use winapi::um::winnt::HANDLE;
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::WAIT_FAILED;
+use winapi::um::winnt::HANDLE;
 
 pub type StartRoutine = unsafe extern "system" fn(*mut winapic_void) -> u32;
 
@@ -61,24 +61,24 @@ impl RemoteThread {
         }
     }
 
-	pub fn exit_code(&self) -> Result<u32, Error> {
-		let mut code = 0;
-		let ret = unsafe { GetExitCodeProcess(self.handle, &mut code) };
+    pub fn exit_code(&self) -> Result<u32, Error> {
+        let mut code = 0;
+        let ret = unsafe { GetExitCodeProcess(self.handle, &mut code) };
 
-		if ret == 0 {
-			Err(Error::new("GetExitCodeProcess failed".to_string()))
-		} else {
-			Ok(code)
-		}
-	}
+        if ret == 0 {
+            Err(Error::new("GetExitCodeProcess failed".to_string()))
+        } else {
+            Ok(code)
+        }
+    }
 
-	pub fn wait(&self, timeout: u32) -> Result<u32, Error> {
-		let ret = unsafe { WaitForSingleObject(self.handle, timeout) };
+    pub fn wait(&self, timeout: u32) -> Result<u32, Error> {
+        let ret = unsafe { WaitForSingleObject(self.handle, timeout) };
 
-		if ret == WAIT_FAILED {
-			Err(Error::new("WaitForSingleObject failed".to_string()))
-		} else {
-			Ok(ret)
-		}
-	}
+        if ret == WAIT_FAILED {
+            Err(Error::new("WaitForSingleObject failed".to_string()))
+        } else {
+            Ok(ret)
+        }
+    }
 }
