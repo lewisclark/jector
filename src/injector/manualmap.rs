@@ -33,7 +33,8 @@ impl Injector for ManualMapInjector {
                 | ProcessAccess::PROCESS_QUERY_INFORMATION
                 | ProcessAccess::PROCESS_VM_OPERATION
                 | ProcessAccess::PROCESS_VM_READ
-                | ProcessAccess::PROCESS_VM_WRITE,
+                | ProcessAccess::PROCESS_VM_WRITE
+				| ProcessAccess::SYNCHRONIZE,
             false,
         )?;
 
@@ -109,7 +110,7 @@ impl Injector for ManualMapInjector {
         };
 
         // Spawn a thread to execute the loader buffer in the target process
-        let _thread = RemoteThread::new(
+        let thread = RemoteThread::new(
             &process,
             None,
             None,
@@ -119,7 +120,7 @@ impl Injector for ManualMapInjector {
             None,
         )?;
 
-		loop {} // Temp fix so that loader buffer isn't freed while it is being executed
+		thread.wait(10000)?;
 
         Ok(())
     }
