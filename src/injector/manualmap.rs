@@ -116,7 +116,7 @@ impl Injector for ManualMapInjector {
 #[repr(C)]
 struct LoaderInfo {}
 
-extern "C" fn loader(_param: *mut winapi_cvoid) -> u32 {
+extern "C" fn loader(_param: *mut winapic_void) -> u32 {
     let mut n = 0;
 
     while n < 100 {
