@@ -6,7 +6,7 @@ use std::ffi::c_void;
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
-use winapi::um::processthreadsapi::CreateRemoteThread;
+use winapi::um::processthreadsapi::{CreateRemoteThread, GetExitCodeProcess};
 use winapi::um::winnt::HANDLE;
 
 pub type StartRoutine = unsafe extern "system" fn(*mut winapic_void) -> u32;
@@ -58,4 +58,15 @@ impl RemoteThread {
             Ok(Self { handle })
         }
     }
+
+	pub fn exit_code(&self) -> Result<u32, Error> {
+		let mut code = 0;
+		let ret = unsafe { GetExitCodeProcess(self.handle, &mut code) };
+
+		if ret == 0 {
+			Err(Error::new("GetExitCodeProcess failed".to_string()))
+		} else {
+			Ok(code)
+		}
+	}
 }
