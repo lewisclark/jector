@@ -71,7 +71,7 @@ impl Injector for ManualMapInjector {
         let mut loader_mem = VirtualMem::alloc(
             &process,
             0,
-            512,
+            loader_end as usize - loader as usize,
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_EXECUTE_READWRITE,
         )?;
@@ -108,6 +108,8 @@ impl Injector for ManualMapInjector {
             None,
         )?;
 
+		loop {} // Temp fix so that loader buffer isn't freed while it is being executed
+
         Ok(())
     }
 }
@@ -124,4 +126,8 @@ extern "C" fn loader(_param: *mut winapic_void) -> u32 {
     }
 
     n
+}
+
+extern "C" fn loader_end() {
+
 }
