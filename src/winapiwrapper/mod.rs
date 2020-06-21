@@ -8,3 +8,4 @@ pub mod remotethread;
 pub mod securityattributes;
 pub mod threadcreationflags;
 pub mod virtualmem;
+pub mod library;
