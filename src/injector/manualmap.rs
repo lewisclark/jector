@@ -85,7 +85,7 @@ impl Injector for ManualMapInjector {
 
         // Construct LoaderInfo
         let loaderinfo = LoaderInfo {
-            data: u64::max_value(),
+			image: unsafe { slice::from_raw_parts(image_mem.address() as *const u8, image_mem.size()) }
         };
 
         // Write LoaderInfo to loader buffer
@@ -135,8 +135,8 @@ impl Injector for ManualMapInjector {
 
 // Loader
 #[repr(C)]
-struct LoaderInfo {
-    data: u64,
+struct LoaderInfo<'a> {
+	image: &'a [u8]
 }
 
 extern "C" fn loader(_param: *mut winapic_void) -> u32 {
