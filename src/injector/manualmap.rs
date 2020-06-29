@@ -14,6 +14,9 @@ use std::ffi::c_void;
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
+use winapi::um::winnt::{
+    IMAGE_BASE_RELOCATION, IMAGE_DOS_HEADER, IMAGE_NT_HEADERS, IMAGE_SECTION_HEADER,
+};
 
 pub struct ManualMapInjector {}
 
@@ -84,16 +87,12 @@ impl Injector for ManualMapInjector {
         loader_buf.set_endian(Endian::LittleEndian);
 
         // Construct LoaderInfo
-        let loaderinfo = LoaderInfo {
-            image: unsafe {
-                slice::from_raw_parts(image_mem.address() as *const u8, image_mem.size())
-            },
-        };
+        let loader_info = LoaderInfo::new(image_mem.address() as usize);
 
         // Write LoaderInfo to loader buffer
         let loaderinfo_bytes = unsafe {
             slice::from_raw_parts(
-                &loaderinfo as *const LoaderInfo as *const u8,
+                &loader_info as *const LoaderInfo as *const u8,
                 mem::size_of::<LoaderInfo>(),
             )
         };
@@ -112,7 +111,7 @@ impl Injector for ManualMapInjector {
 
         // Transmute the loader buffer into a function pointer
         let loader_mem_as_fn = unsafe {
-            std::mem::transmute::<*const winapic_void, remotethread::StartRoutine>(
+            mem::transmute::<*const winapic_void, remotethread::StartRoutine>(
                 (loader_mem.address() as usize + mem::size_of::<LoaderInfo>())
                     as *const winapic_void,
             )
@@ -137,18 +136,40 @@ impl Injector for ManualMapInjector {
 
 // Loader
 #[repr(C)]
-struct LoaderInfo<'a> {
-    image: &'a [u8],
+struct LoaderInfo {
+    image_base: usize,
 }
 
-extern "C" fn loader(_param: *mut winapic_void) -> u32 {
-    let mut n = 0;
-
-    while n < 100 {
-        n += 1;
+impl LoaderInfo {
+    pub fn new(image_base: usize) -> Self {
+        Self { image_base }
     }
+}
 
-    n
+// Used to obtain a slice from a raw pointer without the need for a foreign call
+struct Repr<T> {
+    data: *const T,
+    len: usize,
+}
+
+unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
+    let loader_info = mem::transmute::<*mut winapic_void, &LoaderInfo>(param);
+    let dos_header = mem::transmute::<usize, &IMAGE_DOS_HEADER>(loader_info.image_base);
+    let nt_header = mem::transmute::<usize, &IMAGE_NT_HEADERS>(
+        loader_info.image_base + dos_header.e_lfanew as usize,
+    );
+    let section_headers_ptr = (loader_info.image_base
+        + dos_header.e_lfanew as usize
+        + 24 // Account for the size of the signature and file header in nt header
+        + nt_header.FileHeader.SizeOfOptionalHeader as usize)
+        as *const IMAGE_SECTION_HEADER;
+    let section_headers =
+        &*mem::transmute::<Repr<IMAGE_SECTION_HEADER>, *const [IMAGE_SECTION_HEADER]>(Repr {
+            data: section_headers_ptr,
+            len: nt_header.FileHeader.SizeOfOptionalHeader as usize,
+        });
+
+    0
 }
 
 extern "C" fn loader_end() {}
