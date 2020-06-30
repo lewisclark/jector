@@ -15,8 +15,11 @@ use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::um::winnt::{
-    IMAGE_BASE_RELOCATION, IMAGE_DOS_HEADER, IMAGE_NT_HEADERS, IMAGE_SECTION_HEADER,
+    IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC, IMAGE_DIRECTORY_ENTRY_IMPORT,
+    IMAGE_DOS_HEADER, IMAGE_NT_HEADERS, IMAGE_SECTION_HEADER,
 };
+
+const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 
 pub struct ManualMapInjector {}
 
@@ -168,6 +171,42 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             data: section_headers_ptr,
             len: nt_header.FileHeader.SizeOfOptionalHeader as usize,
         });
+
+    let image_base_delta = loader_info.image_base - nt_header.OptionalHeader.ImageBase as usize;
+    if image_base_delta != 0 {
+        let mut base_reloc = (loader_info.image_base
+            + nt_header.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize]
+                .VirtualAddress as usize)
+            as *const IMAGE_BASE_RELOCATION;
+
+        while (*base_reloc).VirtualAddress != 0 {
+            let block_size = (*base_reloc).SizeOfBlock as usize;
+
+            if block_size >= BASE_RELOCATION_SIZE {
+                let entries_len = (block_size - BASE_RELOCATION_SIZE) / mem::size_of::<u16>();
+                let base_reloc_entries = &*mem::transmute::<Repr<u16>, *const [u16]>(Repr {
+                    data: (base_reloc as usize + mem::size_of::<u16>()) as *const u16,
+                    len: entries_len,
+                });
+
+                let mut entry_index = 0;
+                let mut entry = base_reloc_entries[entry_index];
+                while entry != 0 {
+                    let reloc_offset =
+                        (*base_reloc).VirtualAddress as usize + (entry as usize & 0xfff);
+                    let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
+
+                    *reloc_location += image_base_delta;
+
+                    entry_index += 1;
+                    entry = base_reloc_entries[entry_index];
+                }
+            }
+
+            base_reloc = (base_reloc as usize + (*base_reloc).SizeOfBlock as usize)
+                as *const IMAGE_BASE_RELOCATION;
+        }
+    }
 
     0
 }
