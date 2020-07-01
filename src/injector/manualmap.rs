@@ -19,7 +19,7 @@ use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
     IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_DOS_HEADER, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR,
-    IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, IMAGE_SECTION_HEADER, IMAGE_THUNK_DATA, LPCSTR,
+    IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, LPCSTR,
 };
 
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
@@ -177,17 +177,6 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
     let nt_header = mem::transmute::<usize, &IMAGE_NT_HEADERS>(
         loader_info.image_base + dos_header.e_lfanew as usize,
     );
-    // + 24 bytes to account for the size of the signature and file header in the nt header
-    let nt_header_size = 24 + nt_header.FileHeader.SizeOfOptionalHeader as usize;
-
-    let section_headers_ptr = (loader_info.image_base
-        + dos_header.e_lfanew as usize
-        + nt_header_size) as *const IMAGE_SECTION_HEADER;
-    let section_headers =
-        &*mem::transmute::<Repr<IMAGE_SECTION_HEADER>, *const [IMAGE_SECTION_HEADER]>(Repr {
-            data: section_headers_ptr,
-            len: nt_header.FileHeader.SizeOfOptionalHeader as usize,
-        });
 
     let image_base_delta = loader_info.image_base - nt_header.OptionalHeader.ImageBase as usize;
     if image_base_delta != 0 {
