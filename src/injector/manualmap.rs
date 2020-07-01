@@ -264,10 +264,10 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             as *const IMAGE_IMPORT_DESCRIPTOR;
     }
 
-    let entry_point_addr =
-        loader_info.image_base + nt_header.OptionalHeader.AddressOfEntryPoint as usize;
+    if nt_header.OptionalHeader.AddressOfEntryPoint != 0 {
+        let entry_point_addr =
+            loader_info.image_base + nt_header.OptionalHeader.AddressOfEntryPoint as usize;
 
-    if entry_point_addr != 0 {
         mem::transmute::<usize, FnDllMain>(entry_point_addr)(
             loader_info.image_base as HINSTANCE,
             DLL_PROCESS_ATTACH,
