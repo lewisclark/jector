@@ -8,7 +8,7 @@ pub struct Library {
 }
 
 impl Library {
-    pub fn load_library(name: String) -> Result<Self, Error> {
+    pub fn load(name: &str) -> Result<Self, Error> {
         let name = match CString::new(name) {
             Ok(cstr) => Ok(cstr),
             Err(e) => Err(Error::new(
@@ -26,7 +26,7 @@ impl Library {
         }
     }
 
-    pub fn proc_address(&self, proc_name: String) -> Result<*const (), Error> {
+    pub fn proc_address(&self, proc_name: &str) -> Result<*const (), Error> {
         let proc_name = match CString::new(proc_name) {
             Ok(cstr) => Ok(cstr),
             Err(e) => Err(Error::new(
