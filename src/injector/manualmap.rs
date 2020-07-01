@@ -15,15 +15,16 @@ use std::ffi::c_void;
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
-use winapi::shared::minwindef::{FARPROC, HMODULE};
+use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID};
 use winapi::um::winnt::{
-    IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC, IMAGE_DIRECTORY_ENTRY_IMPORT,
-    IMAGE_DOS_HEADER, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR, IMAGE_NT_HEADERS,
-    IMAGE_ORDINAL_FLAG, IMAGE_SECTION_HEADER, IMAGE_THUNK_DATA, LPCSTR,
+    DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
+    IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_DOS_HEADER, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR,
+    IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, IMAGE_SECTION_HEADER, IMAGE_THUNK_DATA, LPCSTR,
 };
 
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 
+type FnDllMain = unsafe extern "C" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
 type FnLoadLibraryA = unsafe extern "C" fn(LPCSTR) -> HMODULE;
 type FnGetProcAddress = unsafe extern "C" fn(HMODULE, LPCSTR) -> FARPROC;
 
@@ -274,7 +275,18 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             as *const IMAGE_IMPORT_DESCRIPTOR;
     }
 
-    0
+    let entry_point_addr =
+        loader_info.image_base + nt_header.OptionalHeader.AddressOfEntryPoint as usize;
+
+    if entry_point_addr != 0 {
+        mem::transmute::<usize, FnDllMain>(entry_point_addr)(
+            loader_info.image_base as HINSTANCE,
+            DLL_PROCESS_ATTACH,
+            0 as LPVOID,
+        ) as u32
+    } else {
+        1
+    }
 }
 
 extern "C" fn loader_end() {}
