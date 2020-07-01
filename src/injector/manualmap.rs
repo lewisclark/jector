@@ -1,6 +1,7 @@
 use super::error::Error;
 use super::injector::Injector;
 use crate::winapiwrapper::alloctype::AllocType;
+use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
@@ -14,12 +15,16 @@ use std::ffi::c_void;
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
+use winapi::shared::minwindef::{FARPROC, HMODULE};
 use winapi::um::winnt::{
     IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC, IMAGE_DIRECTORY_ENTRY_IMPORT,
-    IMAGE_DOS_HEADER, IMAGE_NT_HEADERS, IMAGE_SECTION_HEADER,
+    IMAGE_DOS_HEADER, IMAGE_NT_HEADERS, IMAGE_SECTION_HEADER, LPCSTR,
 };
 
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
+
+type FnLoadLibraryA = unsafe extern "C" fn(LPCSTR) -> HMODULE;
+type FnGetProcAddress = unsafe extern "C" fn(HMODULE, LPCSTR) -> FARPROC;
 
 pub struct ManualMapInjector {}
 
@@ -90,7 +95,20 @@ impl Injector for ManualMapInjector {
         loader_buf.set_endian(Endian::LittleEndian);
 
         // Construct LoaderInfo
-        let loader_info = LoaderInfo::new(image_mem.address() as usize);
+        let lib_kernel32 = Library::load("kernel32.dll")?;
+        let loader_info = LoaderInfo {
+            image_base: image_mem.address() as usize,
+            load_library: unsafe {
+                mem::transmute::<*const (), FnLoadLibraryA>(
+                    lib_kernel32.proc_address("LoadLibraryA")?,
+                )
+            },
+            get_proc_address: unsafe {
+                mem::transmute::<*const (), FnGetProcAddress>(
+                    lib_kernel32.proc_address("GetProcAddress")?,
+                )
+            },
+        };
 
         // Write LoaderInfo to loader buffer
         let loaderinfo_bytes = unsafe {
@@ -141,12 +159,8 @@ impl Injector for ManualMapInjector {
 #[repr(C)]
 struct LoaderInfo {
     image_base: usize,
-}
-
-impl LoaderInfo {
-    pub fn new(image_base: usize) -> Self {
-        Self { image_base }
-    }
+    load_library: FnLoadLibraryA,
+    get_proc_address: FnGetProcAddress,
 }
 
 // Used to obtain a slice from a raw pointer without the need for a foreign call
