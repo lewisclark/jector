@@ -18,7 +18,8 @@ use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{FARPROC, HMODULE};
 use winapi::um::winnt::{
     IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC, IMAGE_DIRECTORY_ENTRY_IMPORT,
-    IMAGE_DOS_HEADER, IMAGE_NT_HEADERS, IMAGE_SECTION_HEADER, LPCSTR,
+    IMAGE_DOS_HEADER, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR, IMAGE_NT_HEADERS,
+    IMAGE_ORDINAL_FLAG, IMAGE_SECTION_HEADER, IMAGE_THUNK_DATA, LPCSTR,
 };
 
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
@@ -175,11 +176,12 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
     let nt_header = mem::transmute::<usize, &IMAGE_NT_HEADERS>(
         loader_info.image_base + dos_header.e_lfanew as usize,
     );
+    // + 24 bytes to account for the size of the signature and file header in the nt header
+    let nt_header_size = 24 + nt_header.FileHeader.SizeOfOptionalHeader as usize;
+
     let section_headers_ptr = (loader_info.image_base
         + dos_header.e_lfanew as usize
-        + 24 // Account for the size of the signature and file header in nt header
-        + nt_header.FileHeader.SizeOfOptionalHeader as usize)
-        as *const IMAGE_SECTION_HEADER;
+        + nt_header_size) as *const IMAGE_SECTION_HEADER;
     let section_headers =
         &*mem::transmute::<Repr<IMAGE_SECTION_HEADER>, *const [IMAGE_SECTION_HEADER]>(Repr {
             data: section_headers_ptr,
@@ -220,6 +222,56 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             base_reloc = (base_reloc as usize + (*base_reloc).SizeOfBlock as usize)
                 as *const IMAGE_BASE_RELOCATION;
         }
+    }
+
+    let mut import_descriptor = (loader_info.image_base
+        + nt_header.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT as usize]
+            .VirtualAddress as usize)
+        as *const IMAGE_IMPORT_DESCRIPTOR;
+
+    while *(import_descriptor as *const u32) != 0 {
+        let module = (loader_info.load_library)(
+            (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
+        );
+
+        if module as usize == 0 {
+            return 1;
+        }
+
+        let mut orig_first_thunk =
+            (loader_info.image_base + *(import_descriptor as *const usize)) as *const usize;
+
+        while *orig_first_thunk != 0 {
+            let mut first_thunk =
+                (loader_info.image_base + (*import_descriptor).FirstThunk as usize) as *mut usize;
+
+            let mut proc = 0;
+
+            if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 {
+                proc =
+                    (loader_info.get_proc_address)(module, (*orig_first_thunk & 0xffff) as LPCSTR)
+                        as usize;
+            } else {
+                let import_by_name =
+                    (loader_info.image_base + *orig_first_thunk) as *const IMAGE_IMPORT_BY_NAME;
+
+                proc = (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
+                    as usize;
+            }
+
+            if proc == 0 {
+                return 1;
+            } else {
+                *first_thunk = proc;
+
+                orig_first_thunk =
+                    (orig_first_thunk as usize + mem::size_of::<usize>()) as *const usize;
+                first_thunk = (first_thunk as usize + mem::size_of::<usize>()) as *mut usize;
+            }
+        }
+
+        import_descriptor = (import_descriptor as usize + mem::size_of::<IMAGE_IMPORT_DESCRIPTOR>())
+            as *const IMAGE_IMPORT_DESCRIPTOR;
     }
 
     0
