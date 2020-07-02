@@ -189,28 +189,24 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             let block_size = (*base_reloc).SizeOfBlock as usize;
 
             if block_size >= BASE_RELOCATION_SIZE {
-                let entries_len = (block_size - BASE_RELOCATION_SIZE) / mem::size_of::<u16>();
-                let base_reloc_entries = &*mem::transmute::<Repr<u16>, *const [u16]>(Repr {
-                    data: (base_reloc as usize + mem::size_of::<u16>()) as *const u16,
-                    len: entries_len,
-                });
+                let mut type_offset = (base_reloc as usize + BASE_RELOCATION_SIZE) as *const u16;
+                loop {
+                    if *type_offset == 0 {
+                        break;
+                    } else {
+                        let offset_ptr = (loader_info.image_base
+                            + (*base_reloc).VirtualAddress as usize
+                            + ((*type_offset) as usize & 0xfff))
+                            as *mut usize;
 
-                let mut entry_index = 0;
-                let mut entry = base_reloc_entries[entry_index];
-                while entry != 0 {
-                    let reloc_offset =
-                        (*base_reloc).VirtualAddress as usize + (entry as usize & 0xfff);
-                    let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
-
-                    *reloc_location += image_base_delta;
-
-                    entry_index += 1;
-                    entry = base_reloc_entries[entry_index];
+                        *offset_ptr += image_base_delta;
+                        type_offset = (type_offset as usize + mem::size_of::<u16>()) as *const u16;
+                    }
                 }
             }
 
-            base_reloc = (base_reloc as usize + (*base_reloc).SizeOfBlock as usize)
-                as *const IMAGE_BASE_RELOCATION;
+            base_reloc =
+                (base_reloc as usize + block_size as usize) as *const IMAGE_BASE_RELOCATION;
         }
     }
 
