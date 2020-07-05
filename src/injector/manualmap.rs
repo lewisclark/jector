@@ -9,7 +9,7 @@ use crate::winapiwrapper::remotethread::{self, RemoteThread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
-use goblin::pe::PE;
+use pelite::pe64::{PeFile, Pe};
 use std::error;
 use std::ffi::c_void;
 use std::mem;
@@ -31,13 +31,8 @@ type FnGetProcAddress = unsafe extern "C" fn(HMODULE, LPCSTR) -> FARPROC;
 pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
-    fn inject(pid: u32, pe: PE, image: &Vec<u8>) -> Result<(), Box<dyn error::Error>> {
-        let opthdr = match pe.header.optional_header {
-            Some(header) => Ok(header),
-            None => Err(Box::new(Error::new("No optional header".to_string()))),
-        }?;
-
-        let pe_size = opthdr.windows_fields.size_of_image as usize;
+    fn inject(pid: u32, pe: PeFile, image: &Vec<u8>) -> Result<(), Box<dyn error::Error>> {
+        let pe_size = pe.optional_header().SizeOfImage as usize;
 
         // Obtain target process handle
         let process = Process::from_pid(
@@ -68,18 +63,19 @@ impl Injector for ManualMapInjector {
         image_buf.set_endian(Endian::LittleEndian);
 
         // Write image headers
-        image_buf.write_bytes(&image[..opthdr.windows_fields.size_of_headers as usize]);
+        image_buf.write_bytes(&image[..pe.optional_header().SizeOfHeaders as usize]);
 
         // Write image sections
-        for section in &pe.sections {
-            let start = section.pointer_to_raw_data as usize;
-            let size = section.size_of_raw_data as usize;
+        for section in pe.section_headers() {
+            let start = section.PointerToRawData as usize;
+            let size = section.SizeOfRawData as usize;
 
-            image_buf.set_wpos(section.virtual_address as usize);
+            image_buf.set_wpos(section.VirtualAddress as usize);
             image_buf.write_bytes(&image[start..start + size]);
         }
 
         // Do base relocation
+        /*
         for section in &pe.sections {
             println!("section {:?}", section);
 
@@ -87,6 +83,7 @@ impl Injector for ManualMapInjector {
                 println!("{}", reloc.virtual_address);
             }
         }
+        */
 
         // Write image buffer to image memory
         image_mem.write(image_buf.to_bytes().as_ptr(), image_buf.len())?;
@@ -154,9 +151,9 @@ impl Injector for ManualMapInjector {
         println!("loader_mem -> {:x}", loader_mem.address() as usize);
         println!(
             "entry point -> {:x}",
-            image_mem.address() as usize + pe.entry
+            image_mem.address() as usize + pe.optional_header().AddressOfEntryPoint as usize
         );
-        println!("entry point offset from base -> {:x}", pe.entry);
+        println!("entry point offset from base -> {:x}", pe.optional_header().AddressOfEntryPoint);
         std::thread::sleep_ms(60000);
         println!("calling entrypoint...");
 

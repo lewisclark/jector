@@ -6,6 +6,6 @@ edition = "2018"
 
 [dependencies]
 winapi = { version = "0.3.9", features = ["winnt", "processthreadsapi", "handleapi", "memoryapi", "winbase", "errhandlingapi", "synchapi"] }
-goblin = "0.2.3"
+pelite = "0.8.1"
 bitflags = "1.2.1"
 bytebuffer-rs = "0.3.1"

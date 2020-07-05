@@ -1,7 +1,8 @@
 #[macro_use]
 extern crate bitflags;
 
-use goblin::Object::PE;
+use pelite::pe64::{PeFile, Pe};
+use winapi::um::winnt::IMAGE_FILE_DLL;
 use std::env;
 use std::error;
 use std::fmt;
@@ -36,12 +37,9 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let mut file_bytes = Vec::new();
     config.dll_file_mut().read_to_end(&mut file_bytes)?;
 
-    let pe = match goblin::Object::parse(file_bytes.as_slice())? {
-        PE(pe) => Ok(pe),
-        _ => Err(Box::new(Error("Expected PE file".to_string()))),
-    }?;
+    let pe = PeFile::from_bytes(file_bytes.as_slice())?;
 
-    if !pe.is_lib {
+    if pe.file_header().Characteristics & IMAGE_FILE_DLL != IMAGE_FILE_DLL {
         return Err(Box::new(Error("Expected library PE file".to_string())));
     }
 
