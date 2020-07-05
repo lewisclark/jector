@@ -9,7 +9,7 @@ use crate::winapiwrapper::remotethread::{self, RemoteThread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
-use pelite::pe64::{PeFile, Pe};
+use pelite::pe64::{Pe, PeFile};
 use std::error;
 use std::ffi::c_void;
 use std::mem;
@@ -22,7 +22,7 @@ use winapi::um::winnt::{
     IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, LPCSTR,
 };
 
-const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
+const NUM_BASE_RELOC_BLOCKS: usize = 2048;
 
 type FnDllMain = unsafe extern "C" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
 type FnLoadLibraryA = unsafe extern "C" fn(LPCSTR) -> HMODULE;
@@ -74,17 +74,6 @@ impl Injector for ManualMapInjector {
             image_buf.write_bytes(&image[start..start + size]);
         }
 
-        // Do base relocation
-        /*
-        for section in &pe.sections {
-            println!("section {:?}", section);
-
-            for reloc in section.relocations(&image)? {
-                println!("{}", reloc.virtual_address);
-            }
-        }
-        */
-
         // Write image buffer to image memory
         image_mem.write(image_buf.to_bytes().as_ptr(), image_buf.len())?;
 
@@ -102,10 +91,38 @@ impl Injector for ManualMapInjector {
         loader_buf.resize(loader_mem.size());
         loader_buf.set_endian(Endian::LittleEndian);
 
+        // Collect base relocation blocks
+        let mut base_reloc_blocks = {
+            let mut blocks = [BaseRelocBlock {
+                ptr: 0 as *mut usize,
+                typ: 0,
+            }; NUM_BASE_RELOC_BLOCKS];
+            let mut i = 0;
+
+            for block in pe.base_relocs()?.iter_blocks() {
+                for &word in block.words() {
+                    if word != 0 {
+                        blocks[i] = BaseRelocBlock {
+                            ptr: (image_mem.address() as usize + block.rva_of(&word) as usize)
+                                as *mut usize,
+                            typ: block.type_of(&word),
+                        };
+
+                        i += 1;
+                    }
+                }
+            }
+
+            blocks
+        };
+
         // Construct LoaderInfo
         let lib_kernel32 = Library::load("kernel32.dll")?;
         let loader_info = LoaderInfo {
             image_base: image_mem.address() as usize,
+            image_delta: image_mem.address() as usize - pe.optional_header().ImageBase as usize,
+            optional_header: pe.optional_header().clone(),
+            base_reloc_blocks: base_reloc_blocks,
             load_library: unsafe {
                 mem::transmute::<*const (), FnLoadLibraryA>(
                     lib_kernel32.proc_address("LoadLibraryA")?,
@@ -153,8 +170,11 @@ impl Injector for ManualMapInjector {
             "entry point -> {:x}",
             image_mem.address() as usize + pe.optional_header().AddressOfEntryPoint as usize
         );
-        println!("entry point offset from base -> {:x}", pe.optional_header().AddressOfEntryPoint);
-        std::thread::sleep_ms(60000);
+        println!(
+            "entry point offset from base -> {:x}",
+            pe.optional_header().AddressOfEntryPoint
+        );
+        //std::thread::sleep_ms(60000);
         println!("calling entrypoint...");
 
         // Spawn a thread to execute the loader buffer in the target process
@@ -170,76 +190,49 @@ impl Injector for ManualMapInjector {
 
         thread.wait(10000)?;
 
-        loop {}
+        //loop {}
 
         Ok(())
     }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+struct BaseRelocBlock {
+    ptr: *mut usize,
+    typ: u8,
 }
 
 // Loader
 #[repr(C)]
 struct LoaderInfo {
     image_base: usize,
+    image_delta: usize,
+    optional_header: pelite::pe64::image::IMAGE_OPTIONAL_HEADER,
+    base_reloc_blocks: [BaseRelocBlock; NUM_BASE_RELOC_BLOCKS],
     load_library: FnLoadLibraryA,
     get_proc_address: FnGetProcAddress,
 }
 
 unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
     let loader_info = mem::transmute::<*mut winapic_void, &LoaderInfo>(param);
-    let dos_header = mem::transmute::<usize, &IMAGE_DOS_HEADER>(loader_info.image_base);
-    let nt_header = mem::transmute::<usize, &IMAGE_NT_HEADERS>(
-        loader_info.image_base + dos_header.e_lfanew as usize,
-    );
 
-    let mut import_descriptor = (loader_info.image_base
-        + nt_header.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT as usize]
-            .VirtualAddress as usize)
-        as *const IMAGE_IMPORT_DESCRIPTOR;
+    {
+        let mut i = 0;
+        while i < NUM_BASE_RELOC_BLOCKS {
+            let block = &loader_info.base_reloc_blocks[i];
 
-    while *(import_descriptor as *const u32) != 0 {
-        let module = (loader_info.load_library)(
-            (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
-        );
-
-        if module as usize == 0 {
-            return 1;
-        }
-
-        let mut orig_first_thunk =
-            (loader_info.image_base + *(import_descriptor as *const u32) as usize) as *const usize;
-        let mut first_thunk =
-            (loader_info.image_base + (*import_descriptor).FirstThunk as usize) as *mut usize;
-
-        while *orig_first_thunk != 0 {
-            let mut proc = 0;
-
-            if ((*orig_first_thunk) as usize & IMAGE_ORDINAL_FLAG as usize) != 0 {
-                proc =
-                    (loader_info.get_proc_address)(module, (*orig_first_thunk & 0xffff) as LPCSTR)
-                        as usize;
-            } else {
-                let import_by_name = (loader_info.image_base + (*orig_first_thunk) as usize)
-                    as *const IMAGE_IMPORT_BY_NAME;
-
-                proc = (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
-                    as usize;
+            if block.ptr as usize == 0 {
+                break;
             }
 
-            if proc == 0 {
-                return 1;
-            } else {
-                *first_thunk = proc;
-
-                orig_first_thunk =
-                    (orig_first_thunk as usize + mem::size_of::<usize>()) as *const usize;
-                first_thunk = (first_thunk as usize + mem::size_of::<usize>()) as *mut usize;
-            }
+            *block.ptr += loader_info.image_delta;
+            i += 1;
         }
-
-        import_descriptor = (import_descriptor as usize + mem::size_of::<usize>())
-            as *const IMAGE_IMPORT_DESCRIPTOR;
     }
 
+    0
+    /*
     if nt_header.OptionalHeader.AddressOfEntryPoint != 0 {
         let entry = mem::transmute::<usize, FnDllMain>(
             loader_info.image_base + nt_header.OptionalHeader.AddressOfEntryPoint as usize,
@@ -253,6 +246,7 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
     } else {
         1
     }
+    */
 }
 
 extern "C" fn loader_end() {}
