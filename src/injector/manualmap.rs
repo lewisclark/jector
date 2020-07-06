@@ -227,7 +227,7 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             + loader_info.import_directory.VirtualAddress as usize)
             as *const IMAGE_IMPORT_DESCRIPTOR;
 
-        while *(import_descriptor as *const u32) != 0 {
+        while *(import_descriptor as *const usize) != 0 {
             let module = (loader_info.load_library)(
                 (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
             );
@@ -237,7 +237,7 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             }
 
             let mut orig_first_thunk = (loader_info.image_base
-                + *(import_descriptor as *const u32) as usize)
+                + *(import_descriptor as *const usize))
                 as *const usize;
 
             while *orig_first_thunk != 0 {
@@ -247,7 +247,7 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
 
                 let mut proc = 0;
 
-                if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 {
+                if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) == IMAGE_ORDINAL_FLAG as usize {
                     proc = (loader_info.get_proc_address)(
                         module,
                         (*orig_first_thunk & 0xffff) as LPCSTR,
@@ -271,7 +271,7 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
                 }
             }
 
-            import_descriptor = (import_descriptor as usize + mem::size_of::<usize>())
+            import_descriptor = (import_descriptor as usize + mem::size_of::<IMAGE_IMPORT_DESCRIPTOR>())
                 as *const IMAGE_IMPORT_DESCRIPTOR;
         }
     }
