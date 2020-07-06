@@ -23,9 +23,7 @@ use winapi::um::winnt::{
     IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, LPCSTR,
 };
 
-const NUM_BASE_RELOC_BLOCKS: usize = 2048;
-const NUM_IMPORT_DIRECTORIES: usize = 32;
-const NUM_IMPORT_PROC: usize = 128;
+const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 
 type FnDllMain = unsafe extern "C" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
 type FnLoadLibraryA = unsafe extern "C" fn(LPCSTR) -> HMODULE;
@@ -94,75 +92,14 @@ impl Injector for ManualMapInjector {
         loader_buf.resize(loader_mem.size());
         loader_buf.set_endian(Endian::LittleEndian);
 
-        // Collect base relocation blocks
-        let mut base_reloc_blocks = {
-            let mut blocks = [BaseRelocBlock {
-                ptr: 0 as *mut usize,
-                typ: 0,
-            }; NUM_BASE_RELOC_BLOCKS];
-            let mut i = 0;
-
-            for block in pe.base_relocs()?.iter_blocks() {
-                for &word in block.words() {
-                    if word != 0 {
-                        blocks[i] = BaseRelocBlock {
-                            ptr: (image_mem.address() as usize + block.rva_of(&word) as usize)
-                                as *mut usize,
-                            typ: block.type_of(&word),
-                        };
-
-                        i += 1;
-                    }
-                }
-            }
-
-            blocks
-        };
-
-        // Collect imports
-        let import_directories = {
-            let mut import_directories = [ImportDirectory {
-                lib_name: 0,
-                names: [0; NUM_IMPORT_PROC],
-                vas: [0; NUM_IMPORT_PROC],
-            }; NUM_IMPORT_DIRECTORIES];
-
-            let mut i = 0;
-            for import in pe.imports()? {
-                let mut names = [0; NUM_IMPORT_PROC];
-                let mut vas = [0; NUM_IMPORT_PROC];
-
-                let mut j = 0;
-                for (va, proc) in Iterator::zip(import.iat()?, import.int()?) {
-                    names[j] = match proc? {
-                        ByName { hint, name } => image_mem.address() as usize + hint as usize + 2,
-                        ByOrdinal { ord } => ord as usize,
-                    };
-                    vas[j] = *va as usize;
-
-                    j += 1;
-                }
-
-                import_directories[i] = ImportDirectory {
-                    lib_name: image_mem.address() as usize + import.image().Name as usize,
-                    names: names,
-                    vas: vas,
-                };
-
-                i += 1;
-            }
-
-            import_directories
-        };
-
         // Construct LoaderInfo
         let lib_kernel32 = Library::load("kernel32.dll")?;
         let loader_info = LoaderInfo {
             image_base: image_mem.address() as usize,
             image_delta: image_mem.address() as usize - pe.optional_header().ImageBase as usize,
             optional_header: pe.optional_header().clone(),
-            base_reloc_blocks: base_reloc_blocks,
-            import_directories: import_directories,
+            basereloc_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize],
+            import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
             load_library: unsafe {
                 mem::transmute::<*const (), FnLoadLibraryA>(
                     lib_kernel32.proc_address("LoadLibraryA")?,
@@ -203,6 +140,10 @@ impl Injector for ManualMapInjector {
             )
         };
 
+        println!("image entry -> {:x}", image_mem.address() as usize + pe.optional_header().AddressOfEntryPoint as usize);
+        std::thread::sleep_ms(20000);
+        println!("loading...");
+
         // Spawn a thread to execute the loader buffer in the target process
         let thread = RemoteThread::new(
             &process,
@@ -216,23 +157,10 @@ impl Injector for ManualMapInjector {
 
         thread.wait(10000)?;
 
+        loop {};
+
         Ok(())
     }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct BaseRelocBlock {
-    ptr: *mut usize,
-    typ: u8,
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct ImportDirectory {
-    lib_name: usize,
-    names: [usize; NUM_IMPORT_PROC], // Also contains ordinals
-    vas: [usize; NUM_IMPORT_PROC],
 }
 
 // Loader
@@ -241,77 +169,110 @@ struct LoaderInfo {
     image_base: usize,
     image_delta: usize,
     optional_header: pelite::pe64::image::IMAGE_OPTIONAL_HEADER,
-    base_reloc_blocks: [BaseRelocBlock; NUM_BASE_RELOC_BLOCKS],
-    import_directories: [ImportDirectory; NUM_IMPORT_DIRECTORIES],
+    basereloc_directory: pelite::image::IMAGE_DATA_DIRECTORY,
+    import_directory: pelite::image::IMAGE_DATA_DIRECTORY,
     load_library: FnLoadLibraryA,
     get_proc_address: FnGetProcAddress,
+}
+
+// Used to obtain a slice from a raw pointer without the need for a foreign call
+struct Repr<T> {
+    data: *const T,
+    len: usize,
 }
 
 unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
     let loader_info = mem::transmute::<*mut winapic_void, &LoaderInfo>(param);
 
-    // Base relocation
-    {
-        let mut i = 0;
-        while i < NUM_BASE_RELOC_BLOCKS {
-            let block = &loader_info.base_reloc_blocks[i];
+    let image_base_delta = loader_info.image_base - loader_info.optional_header.ImageBase as usize;
+    if image_base_delta != 0 {
+        let mut base_reloc = (loader_info.image_base
+            + loader_info.basereloc_directory.VirtualAddress as usize)
+            as *const IMAGE_BASE_RELOCATION;
 
-            if block.ptr as usize == 0 {
-                break;
+        while (*base_reloc).VirtualAddress != 0 {
+            let block_size = (*base_reloc).SizeOfBlock as usize;
+
+            if block_size >= BASE_RELOCATION_SIZE {
+                let entries_len = (block_size - BASE_RELOCATION_SIZE) / mem::size_of::<u16>();
+                let base_reloc_entries = &*mem::transmute::<Repr<u16>, *const [u16]>(Repr {
+                    data: (base_reloc as usize + BASE_RELOCATION_SIZE) as *const u16,
+                    len: entries_len,
+                });
+
+                let mut entry_index = 0;
+                let mut entry = base_reloc_entries[entry_index];
+                while entry != 0 {
+                    let reloc_offset =
+                        (*base_reloc).VirtualAddress as usize + (entry as usize & 0xfff);
+                    let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
+
+                    *reloc_location += image_base_delta;
+
+                    entry_index += 1;
+                    entry = base_reloc_entries[entry_index];
+                }
             }
 
-            *block.ptr += loader_info.image_delta;
-            i += 1;
+            base_reloc = (base_reloc as usize + (*base_reloc).SizeOfBlock as usize)
+                as *const IMAGE_BASE_RELOCATION;
         }
     }
 
-    // Resolve imports
-    {
-        let mut i = 0;
-        while i < NUM_IMPORT_DIRECTORIES {
-            let import_directory = &loader_info.import_directories[i];
+    let mut import_descriptor = (loader_info.image_base
+        + loader_info.import_directory.VirtualAddress as usize)
+        as *const IMAGE_IMPORT_DESCRIPTOR;
 
-            if import_directory.lib_name == 0 {
-                break;
-            }
-
-            let lib = (loader_info.load_library)(import_directory.lib_name as LPCSTR);
-
-            if lib as usize == 0 {
-                return 1;
-            }
-
-            let mut j = 0;
-            while j < NUM_IMPORT_PROC {
-                let va = import_directory.vas[j];
-
-                if va == 0 {
-                    break;
-                }
-
-                let name = import_directory.names[j];
-                let proc = (loader_info.get_proc_address)(lib, name as LPCSTR);
-
-                if proc as usize == 0 {
-                    return 1;
-                }
-
-                *(va as *mut usize) = proc as usize;
-
-                j += 1;
-            }
-
-            i += 1;
-        }
-    }
-
-    // Call entrypoint
-    if loader_info.optional_header.AddressOfEntryPoint != 0 {
-        let entry = mem::transmute::<usize, FnDllMain>(
-            loader_info.image_base + loader_info.optional_header.AddressOfEntryPoint as usize,
+    while *(import_descriptor as *const u32) != 0 {
+        let module = (loader_info.load_library)(
+            (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
         );
 
-        entry(
+        if module as usize == 0 {
+            return 1;
+        }
+
+        let mut orig_first_thunk =
+            (loader_info.image_base + *(import_descriptor as *const u32) as usize) as *const usize;
+
+        while *orig_first_thunk != 0 {
+            let mut first_thunk =
+                (loader_info.image_base + (*import_descriptor).FirstThunk as usize) as *mut usize;
+
+            let mut proc = 0;
+
+            if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 {
+                proc =
+                    (loader_info.get_proc_address)(module, (*orig_first_thunk & 0xffff) as LPCSTR)
+                        as usize;
+            } else {
+                let import_by_name =
+                    (loader_info.image_base + *orig_first_thunk) as *const IMAGE_IMPORT_BY_NAME;
+
+                proc = (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
+                    as usize;
+            }
+
+            if proc == 0 {
+                return 1;
+            } else {
+                *first_thunk = proc;
+
+                orig_first_thunk =
+                    (orig_first_thunk as usize + mem::size_of::<usize>()) as *const usize;
+                first_thunk = (first_thunk as usize + mem::size_of::<usize>()) as *mut usize;
+            }
+        }
+
+        import_descriptor = (import_descriptor as usize + mem::size_of::<usize>())
+            as *const IMAGE_IMPORT_DESCRIPTOR;
+    }
+
+    if loader_info.optional_header.AddressOfEntryPoint != 0 {
+        let entry_point_addr =
+            loader_info.image_base + loader_info.optional_header.AddressOfEntryPoint as usize;
+
+        mem::transmute::<usize, FnDllMain>(entry_point_addr)(
             loader_info.image_base as HINSTANCE,
             DLL_PROCESS_ATTACH,
             0 as LPVOID,
