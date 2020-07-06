@@ -140,7 +140,10 @@ impl Injector for ManualMapInjector {
             )
         };
 
-        println!("image entry -> {:x}", image_mem.address() as usize + pe.optional_header().AddressOfEntryPoint as usize);
+        println!(
+            "image entry -> {:x}",
+            image_mem.address() as usize + pe.optional_header().AddressOfEntryPoint as usize
+        );
         std::thread::sleep_ms(20000);
         println!("loading...");
 
@@ -157,7 +160,7 @@ impl Injector for ManualMapInjector {
 
         thread.wait(10000)?;
 
-        loop {};
+        loop {}
 
         Ok(())
     }
@@ -184,8 +187,7 @@ struct Repr<T> {
 unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
     let loader_info = mem::transmute::<*mut winapic_void, &LoaderInfo>(param);
 
-    let image_base_delta = loader_info.image_base - loader_info.optional_header.ImageBase as usize;
-    if image_base_delta != 0 {
+    if loader_info.image_delta != 0 {
         let mut base_reloc = (loader_info.image_base
             + loader_info.basereloc_directory.VirtualAddress as usize)
             as *const IMAGE_BASE_RELOCATION;
@@ -201,16 +203,17 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
                 });
 
                 let mut entry_index = 0;
-                let mut entry = base_reloc_entries[entry_index];
-                while entry != 0 {
-                    let reloc_offset =
-                        (*base_reloc).VirtualAddress as usize + (entry as usize & 0xfff);
-                    let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
+                while entry_index < entries_len {
+                    let entry = base_reloc_entries[entry_index];
+                    if entry != 0 {
+                        let reloc_offset =
+                            (*base_reloc).VirtualAddress as usize + (entry as usize & 0xfff);
+                        let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
 
-                    *reloc_location += image_base_delta;
+                        *reloc_location += loader_info.image_delta;
+                    }
 
                     entry_index += 1;
-                    entry = base_reloc_entries[entry_index];
                 }
             }
 
@@ -219,53 +222,58 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
         }
     }
 
-    let mut import_descriptor = (loader_info.image_base
-        + loader_info.import_directory.VirtualAddress as usize)
-        as *const IMAGE_IMPORT_DESCRIPTOR;
-
-    while *(import_descriptor as *const u32) != 0 {
-        let module = (loader_info.load_library)(
-            (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
-        );
-
-        if module as usize == 0 {
-            return 1;
-        }
-
-        let mut orig_first_thunk =
-            (loader_info.image_base + *(import_descriptor as *const u32) as usize) as *const usize;
-
-        while *orig_first_thunk != 0 {
-            let mut first_thunk =
-                (loader_info.image_base + (*import_descriptor).FirstThunk as usize) as *mut usize;
-
-            let mut proc = 0;
-
-            if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 {
-                proc =
-                    (loader_info.get_proc_address)(module, (*orig_first_thunk & 0xffff) as LPCSTR)
-                        as usize;
-            } else {
-                let import_by_name =
-                    (loader_info.image_base + *orig_first_thunk) as *const IMAGE_IMPORT_BY_NAME;
-
-                proc = (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
-                    as usize;
-            }
-
-            if proc == 0 {
-                return 1;
-            } else {
-                *first_thunk = proc;
-
-                orig_first_thunk =
-                    (orig_first_thunk as usize + mem::size_of::<usize>()) as *const usize;
-                first_thunk = (first_thunk as usize + mem::size_of::<usize>()) as *mut usize;
-            }
-        }
-
-        import_descriptor = (import_descriptor as usize + mem::size_of::<usize>())
+    {
+        let mut import_descriptor = (loader_info.image_base
+            + loader_info.import_directory.VirtualAddress as usize)
             as *const IMAGE_IMPORT_DESCRIPTOR;
+
+        while *(import_descriptor as *const u32) != 0 {
+            let module = (loader_info.load_library)(
+                (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
+            );
+
+            if module as usize == 0 {
+                return 1;
+            }
+
+            let mut orig_first_thunk = (loader_info.image_base
+                + *(import_descriptor as *const u32) as usize)
+                as *const usize;
+
+            while *orig_first_thunk != 0 {
+                let mut first_thunk = (loader_info.image_base
+                    + (*import_descriptor).FirstThunk as usize)
+                    as *mut usize;
+
+                let mut proc = 0;
+
+                if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 {
+                    proc = (loader_info.get_proc_address)(
+                        module,
+                        (*orig_first_thunk & 0xffff) as LPCSTR,
+                    ) as usize;
+                } else {
+                    let import_by_name =
+                        (loader_info.image_base + *orig_first_thunk) as *const IMAGE_IMPORT_BY_NAME;
+
+                    proc = (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
+                        as usize;
+                }
+
+                if proc == 0 {
+                    return 1;
+                } else {
+                    *first_thunk = proc;
+
+                    orig_first_thunk =
+                        (orig_first_thunk as usize + mem::size_of::<usize>()) as *const usize;
+                    first_thunk = (first_thunk as usize + mem::size_of::<usize>()) as *mut usize;
+                }
+            }
+
+            import_descriptor = (import_descriptor as usize + mem::size_of::<usize>())
+                as *const IMAGE_IMPORT_DESCRIPTOR;
+        }
     }
 
     if loader_info.optional_header.AddressOfEntryPoint != 0 {
