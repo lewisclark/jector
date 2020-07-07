@@ -20,7 +20,7 @@ use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
     IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_DOS_HEADER, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR,
-    IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, LPCSTR,
+    IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, LPCSTR, IMAGE_REL_BASED_DIR64,
 };
 
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
@@ -207,11 +207,15 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
                 while entry_index < entries_len {
                     let entry = base_reloc_entries[entry_index];
                     if entry != 0 {
-                        let reloc_offset =
-                            (*base_reloc).VirtualAddress as usize + (entry as usize & 0xfff);
-                        let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
+                        let reloc_type = entry >> 12;
 
-                        *reloc_location += loader_info.image_delta;
+                        if reloc_type == IMAGE_REL_BASED_DIR64 {
+                            let reloc_offset =
+                                (*base_reloc).VirtualAddress as usize + (entry as usize & 0xfff);
+                            let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
+
+                            *reloc_location += loader_info.image_delta;
+                        }
                     }
 
                     entry_index += 1;
@@ -227,7 +231,7 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             + loader_info.import_directory.VirtualAddress as usize)
             as *const IMAGE_IMPORT_DESCRIPTOR;
 
-        while (*import_descriptor).FirstThunk != 0 {
+        while (*import_descriptor).Name != 0 {
             let module = (loader_info.load_library)(
                 (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
             );
