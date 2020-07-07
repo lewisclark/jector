@@ -218,8 +218,7 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
                 }
             }
 
-            base_reloc = (base_reloc as usize + (*base_reloc).SizeOfBlock as usize)
-                as *const IMAGE_BASE_RELOCATION;
+            base_reloc = (base_reloc as usize + block_size) as *const IMAGE_BASE_RELOCATION;
         }
     }
 
