@@ -20,14 +20,14 @@ use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
     IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_DOS_HEADER, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR,
-    IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, LPCSTR, IMAGE_REL_BASED_DIR64,
+    IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, LPCSTR,
 };
 
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 
-type FnDllMain = unsafe extern "C" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
-type FnLoadLibraryA = unsafe extern "C" fn(LPCSTR) -> HMODULE;
-type FnGetProcAddress = unsafe extern "C" fn(HMODULE, LPCSTR) -> FARPROC;
+type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
+type FnLoadLibraryA = unsafe extern "system" fn(LPCSTR) -> HMODULE;
+type FnGetProcAddress = unsafe extern "system" fn(HMODULE, LPCSTR) -> FARPROC;
 
 pub struct ManualMapInjector {}
 
@@ -96,7 +96,8 @@ impl Injector for ManualMapInjector {
         let lib_kernel32 = Library::load("kernel32.dll")?;
         let loader_info = LoaderInfo {
             image_base: image_mem.address() as usize,
-            image_delta: image_mem.address() as usize - pe.optional_header().ImageBase as usize,
+            image_delta: (image_mem.address() as usize)
+                .wrapping_sub(pe.optional_header().ImageBase as usize),
             optional_header: pe.optional_header().clone(),
             basereloc_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize],
             import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
@@ -140,6 +141,7 @@ impl Injector for ManualMapInjector {
             )
         };
 
+        println!("image -> {:x}", image_mem.address() as usize);
         println!(
             "image entry -> {:x}",
             image_mem.address() as usize + pe.optional_header().AddressOfEntryPoint as usize
@@ -159,9 +161,11 @@ impl Injector for ManualMapInjector {
             None,
         )?;
 
-        thread.wait(10000)?;
+        thread.wait(60000)?;
 
-        loop {}
+        let code = thread.exit_code()?;
+
+        println!("exit code -> {}", code);
 
         Ok(())
     }
@@ -185,7 +189,7 @@ struct Repr<T> {
     len: usize,
 }
 
-unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
+unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     let loader_info = mem::transmute::<*mut winapic_void, &LoaderInfo>(param);
 
     if loader_info.image_delta != 0 {
@@ -195,31 +199,25 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
 
         while (*base_reloc).VirtualAddress != 0 {
             let block_size = (*base_reloc).SizeOfBlock as usize;
+            let entries_len = (block_size - BASE_RELOCATION_SIZE) / mem::size_of::<u16>();
+            let mut entry_index = 0;
+            let mut entry = (base_reloc as usize + BASE_RELOCATION_SIZE) as *const u16;
+            while entry_index < entries_len {
+                let reloc_type = *entry >> 12;
+                if reloc_type == IMAGE_REL_BASED_DIR64 {
+                    let reloc_offset = ((*base_reloc).VirtualAddress as usize
+                        + (*entry as usize & 0xfff))
+                        % 9223372036854775807;
+                    let reloc_location = ((loader_info.image_base + reloc_offset)
+                        % 9223372036854775807)
+                        as *mut usize;
 
-            if block_size >= BASE_RELOCATION_SIZE {
-                let entries_len = (block_size - BASE_RELOCATION_SIZE) / mem::size_of::<u16>();
-                let base_reloc_entries = &*mem::transmute::<Repr<u16>, *const [u16]>(Repr {
-                    data: (base_reloc as usize + BASE_RELOCATION_SIZE) as *const u16,
-                    len: entries_len,
-                });
-
-                let mut entry_index = 0;
-                while entry_index < entries_len {
-                    let entry = base_reloc_entries[entry_index];
-                    if entry != 0 {
-                        let reloc_type = entry >> 12;
-
-                        if reloc_type == IMAGE_REL_BASED_DIR64 {
-                            let reloc_offset =
-                                (*base_reloc).VirtualAddress as usize + (entry as usize & 0xfff);
-                            let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
-
-                            *reloc_location += loader_info.image_delta;
-                        }
-                    }
-
-                    entry_index += 1;
+                    *reloc_location =
+                        (*reloc_location + loader_info.image_delta) % 9223372036854775807;
                 }
+
+                entry_index += 1;
+                entry = (entry as usize + mem::size_of::<u16>()) as *const u16;
             }
 
             base_reloc = (base_reloc as usize + block_size) as *const IMAGE_BASE_RELOCATION;
@@ -237,14 +235,15 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             );
 
             if module as usize == 0 {
-                return 1;
+                return 10;
             }
 
-            let mut orig_first_thunk = (loader_info.image_base
+            let mut orig_first_thunk = ((loader_info.image_base
                 + *(import_descriptor as *const u32) as usize)
-                as *const usize;
-            let mut first_thunk =
-                (loader_info.image_base + (*import_descriptor).FirstThunk as usize) as *mut usize;
+                % 9223372036854775807) as *const usize;
+            let mut first_thunk = ((loader_info.image_base
+                + (*import_descriptor).FirstThunk as usize)
+                % 9223372036854775807) as *mut usize;
 
             while *orig_first_thunk != 0 {
                 let mut proc = 0;
@@ -263,7 +262,7 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
                 }
 
                 if proc == 0 {
-                    return 1;
+                    return 20;
                 } else {
                     *first_thunk = proc;
 
@@ -287,10 +286,10 @@ unsafe extern "C" fn loader(param: *mut winapic_void) -> u32 {
             loader_info.image_base as HINSTANCE,
             DLL_PROCESS_ATTACH,
             0 as LPVOID,
-        ) as u32
+        )
     } else {
-        1
+        30
     }
 }
 
-extern "C" fn loader_end() {}
+extern "system" fn loader_end() {}
