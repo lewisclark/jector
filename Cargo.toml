@@ -1,8 +1,17 @@
 [package]
-name = "manualmap-rs"
+name = "manualmap"
 version = "0.1.0"
-authors = ["lewis <25719980+c4fe@users.noreply.github.com>"]
+authors = ["lewis <me@lewis.to>"]
 edition = "2018"
+
+[lib]
+name = "manualmap"
+path = "src/lib.rs"
+
+[[bin]]
+name = "manualmap"
+path = "src/main.rs"
+doc = false
 
 [dependencies]
 winapi = { version = "0.3.9", features = ["winnt", "processthreadsapi", "handleapi", "memoryapi", "winbase", "errhandlingapi", "synchapi"] }
