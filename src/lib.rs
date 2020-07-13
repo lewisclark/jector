@@ -1,15 +1,15 @@
 #[macro_use]
 extern crate bitflags;
 
-use pelite::pe64::{PeFile, Pe};
+use pelite::pe64::{Pe, PeFile};
 use winapi::um::winnt::IMAGE_FILE_DLL;
 
+mod error;
 mod injector;
 mod winapiwrapper;
-mod error;
 
-use injector::manualmap;
 use error::Error;
+use injector::manualmap;
 
 pub fn inject_pid(pid: u32, dll: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     let pe = PeFile::from_bytes(dll)?;

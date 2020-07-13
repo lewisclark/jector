@@ -98,9 +98,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         basereloc_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize],
         import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
         load_library: unsafe {
-            mem::transmute::<*const (), FnLoadLibraryA>(
-                lib_kernel32.proc_address("LoadLibraryA")?,
-            )
+            mem::transmute::<*const (), FnLoadLibraryA>(lib_kernel32.proc_address("LoadLibraryA")?)
         },
         get_proc_address: unsafe {
             mem::transmute::<*const (), FnGetProcAddress>(
@@ -132,8 +130,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     // Transmute the loader buffer into a function pointer
     let loader_mem_as_fn = unsafe {
         mem::transmute::<*const winapic_void, remotethread::StartRoutine>(
-            (loader_mem.address() as usize + mem::size_of::<LoaderInfo>())
-                as *const winapic_void,
+            (loader_mem.address() as usize + mem::size_of::<LoaderInfo>()) as *const winapic_void,
         )
     };
 
