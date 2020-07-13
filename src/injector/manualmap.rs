@@ -1,4 +1,4 @@
-use super::error::Error;
+use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;

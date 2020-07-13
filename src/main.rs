@@ -9,11 +9,13 @@ mod injector;
 mod winapiwrapper;
 mod error;
 
+use error::Error;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args: Vec<String> = env::args().collect();
 
     if args.len() != 3 {
-        return Err(Box::new(error::Error(format!("{} <pid> <dll path>", args[0]))));
+        return Err(Box::new(Error::new(format!("{} <pid> <dll path>", args[0]))));
     }
 
     let pid: u32 = args[1].parse()?;
