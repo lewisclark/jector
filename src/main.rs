@@ -12,7 +12,7 @@ mod winapiwrapper;
 use error::Error;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut args: Vec<String> = env::args().collect();
+    let args: Vec<String> = env::args().collect();
 
     if args.len() != 3 {
         return Err(Box::new(Error::new(format!(

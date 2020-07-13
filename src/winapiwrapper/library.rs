@@ -11,9 +11,10 @@ impl Library {
     pub fn load(name: &str) -> Result<Self, Error> {
         let name = match CString::new(name) {
             Ok(cstr) => Ok(cstr),
-            Err(e) => Err(Error::new(
-                "Failed to construct CString from name arg".to_string(),
-            )),
+            Err(e) => Err(Error::new(format!(
+                "Failed to construct CString from name arg ({})",
+                e
+            ))),
         }?
         .into_raw();
 
@@ -29,9 +30,10 @@ impl Library {
     pub fn proc_address(&self, proc_name: &str) -> Result<*const (), Error> {
         let proc_name = match CString::new(proc_name) {
             Ok(cstr) => Ok(cstr),
-            Err(e) => Err(Error::new(
-                "Failed to construct CString from proc_name arg".to_string(),
-            )),
+            Err(e) => Err(Error::new(format!(
+                "Failed to construct CString from proc_name arg ({})",
+                e
+            ))),
         }?
         .into_raw();
 

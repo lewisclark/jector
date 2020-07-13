@@ -1,4 +1,3 @@
-use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
@@ -8,7 +7,6 @@ use crate::winapiwrapper::remotethread::{self, RemoteThread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
-use pelite::pe64::imports::Import::{ByName, ByOrdinal};
 use pelite::pe64::{Pe, PeFile};
 use std::error;
 use std::ffi::c_void;
@@ -18,8 +16,8 @@ use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID};
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
-    IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_DOS_HEADER, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR,
-    IMAGE_NT_HEADERS, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, LPCSTR,
+    IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR,
+    IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, LPCSTR,
 };
 
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
@@ -165,12 +163,6 @@ struct LoaderInfo {
     get_proc_address: FnGetProcAddress,
 }
 
-// Used to obtain a slice from a raw pointer without the need for a foreign call
-struct Repr<T> {
-    data: *const T,
-    len: usize,
-}
-
 unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     let loader_info = mem::transmute::<*mut winapic_void, &LoaderInfo>(param);
 
@@ -228,7 +220,7 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
                 % 9223372036854775807) as *mut usize;
 
             while *orig_first_thunk != 0 {
-                let mut proc = 0;
+                let proc;
 
                 if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 as usize {
                     proc = (loader_info.get_proc_address)(

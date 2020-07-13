@@ -78,10 +78,6 @@ impl<'a> VirtualMem<'a> {
         self.free_on_drop = free_on_drop
     }
 
-    pub fn free_on_drop(&self) -> bool {
-        self.free_on_drop
-    }
-
     pub fn write(&mut self, src: *const u8, size: usize) -> Result<(), Error> {
         if size > self.size {
             return Err(Error::new(
@@ -108,10 +104,6 @@ impl<'a> VirtualMem<'a> {
         } else {
             Ok(())
         }
-    }
-
-    pub fn process(&self) -> &Process {
-        self.process
     }
 
     pub fn address(&self) -> *const c_void {
