@@ -1,16 +1,14 @@
 [package]
-name = "manualmap"
+name = "jector"
 version = "0.1.0"
 authors = ["lewis <me@lewis.to>"]
 edition = "2018"
 
 [lib]
-name = "manualmap"
-path = "src/lib.rs"
+name = "jector"
 
 [[bin]]
-name = "manualmap"
-path = "src/main.rs"
+name = "jector"
 doc = false
 
 [dependencies]

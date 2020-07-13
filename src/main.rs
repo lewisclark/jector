@@ -20,5 +20,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut dll_bytes = Vec::new();
     File::open(&args[2])?.read_to_end(&mut dll_bytes)?;
 
-    manualmap::inject_pid(pid, &dll_bytes)
+    jector::inject_pid(pid, &dll_bytes)
 }
