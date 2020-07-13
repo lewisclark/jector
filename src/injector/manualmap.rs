@@ -141,15 +141,6 @@ impl Injector for ManualMapInjector {
             )
         };
 
-        println!("image -> {:x}", image_mem.address() as usize);
-        println!(
-            "image entry -> {:x}",
-            image_mem.address() as usize + pe.optional_header().AddressOfEntryPoint as usize
-        );
-        println!("loader -> {:x}", loader_mem_as_fn as usize);
-        std::thread::sleep_ms(20000);
-        println!("loading...");
-
         // Spawn a thread to execute the loader buffer in the target process
         let thread = RemoteThread::new(
             &process,
@@ -164,7 +155,6 @@ impl Injector for ManualMapInjector {
         thread.wait(60000)?;
 
         let code = thread.exit_code()?;
-
         println!("exit code -> {}", code);
 
         Ok(())
