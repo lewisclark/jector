@@ -31,3 +31,4 @@ Jector doesn't use LoadLibrary like many other injectors. Instead, it allocates 
 - [ ] Support injecting 32-bit libraries into 32-bit processes
 - [ ] Do base relocation outside of the loader routine
 - [ ] Resolve imports outside of the loader routine
+- [ ] Logging
