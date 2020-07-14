@@ -3,7 +3,7 @@ use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
-use crate::winapiwrapper::remotethread::{self, RemoteThread};
+use crate::winapiwrapper::thread::{self, Thread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
@@ -138,7 +138,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
 
     // Transmute the loader buffer into a function pointer
     let loader_mem_as_fn = unsafe {
-        mem::transmute::<*const winapic_void, remotethread::StartRoutine>(
+        mem::transmute::<*const winapic_void, thread::StartRoutine>(
             (loader_mem.address() as usize + mem::size_of::<LoaderInfo>()) as *const winapic_void,
         )
     };
@@ -146,7 +146,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     println!("Loader routine at {:x}", loader_mem_as_fn as usize);
 
     // Spawn a thread to execute the loader buffer in the target process
-    let thread = RemoteThread::new(
+    let thread = Thread::spawn_remote(
         &process,
         None,
         None,

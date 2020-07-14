@@ -13,12 +13,12 @@ use winapi::um::winnt::HANDLE;
 
 pub type StartRoutine = unsafe extern "system" fn(*mut winapic_void) -> u32;
 
-pub struct RemoteThread {
+pub struct Thread {
     handle: HANDLE,
 }
 
-impl RemoteThread {
-    pub fn new(
+impl Thread {
+    pub fn spawn_remote(
         process: &Process,
         thread_attributes: Option<&SecurityAttributes>,
         stack_size: Option<usize>,
