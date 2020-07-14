@@ -18,6 +18,10 @@ pub struct Thread {
 }
 
 impl Thread {
+    pub unsafe fn from_handle(handle: HANDLE) -> Self {
+        Self { handle }
+    }
+
     pub fn spawn_remote(
         process: &Process,
         thread_attributes: Option<&SecurityAttributes>,
