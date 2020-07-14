@@ -18,7 +18,7 @@ impl Snapshot {
     pub fn from_pid(pid: u32, flags: SnapshotFlags) -> Result<Self, Error> {
         let h = unsafe { CreateToolhelp32Snapshot(flags.bits(), pid) };
 
-        if h == INVALID_HANDLE_VALUE {
+        if h != INVALID_HANDLE_VALUE {
             Ok(unsafe { Self::from_handle(h) })
         } else {
             Err(Error::new(
