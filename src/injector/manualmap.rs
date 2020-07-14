@@ -50,6 +50,8 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         ProtectFlag::PAGE_EXECUTE_READWRITE,
     )?;
 
+    println!("Allocated image buffer at {:x}", image_mem.address() as usize);
+
     image_mem.set_free_on_drop(false);
 
     // Initialize image buffer
@@ -67,6 +69,13 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
 
         image_buf.set_wpos(section.VirtualAddress as usize);
         image_buf.write_bytes(&image[start..start + size]);
+
+        println!(
+            "Section {} written at {:x} with size {:x}",
+            section.Name.to_str()?,
+            image_mem.address() as usize + start,
+            size
+        );
     }
 
     // Write image buffer to image memory
@@ -80,6 +89,8 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
         ProtectFlag::PAGE_EXECUTE_READWRITE,
     )?;
+
+    println!("Allocated loader buffer at {:x}", loader_mem.address() as usize);
 
     // Initialize loader buffer
     let mut loader_buf = ByteBuffer::new();
@@ -132,6 +143,8 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         )
     };
 
+    println!("Loader routine at {:x}", loader_mem_as_fn as usize);
+
     // Spawn a thread to execute the loader buffer in the target process
     let thread = RemoteThread::new(
         &process,
@@ -146,7 +159,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     thread.wait(60000)?;
 
     let code = thread.exit_code()?;
-    println!("exit code -> {}", code);
+    println!("Remote thread exit code: {}", code);
 
     Ok(())
 }
