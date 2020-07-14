@@ -50,7 +50,10 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         ProtectFlag::PAGE_EXECUTE_READWRITE,
     )?;
 
-    println!("Allocated image buffer at {:x}", image_mem.address() as usize);
+    println!(
+        "Allocated image buffer at {:x}",
+        image_mem.address() as usize
+    );
 
     image_mem.set_free_on_drop(false);
 
@@ -90,7 +93,10 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         ProtectFlag::PAGE_EXECUTE_READWRITE,
     )?;
 
-    println!("Allocated loader buffer at {:x}", loader_mem.address() as usize);
+    println!(
+        "Allocated loader buffer at {:x}",
+        loader_mem.address() as usize
+    );
 
     // Initialize loader buffer
     let mut loader_buf = ByteBuffer::new();

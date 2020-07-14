@@ -1,8 +1,10 @@
 use super::error::Error;
 use super::processaccess::ProcessAccess;
+use super::snapshot::Snapshot;
+use super::snapshotflags::SnapshotFlags;
 use std::ops::Drop;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::processthreadsapi::{OpenProcess, GetProcessId};
+use winapi::um::processthreadsapi::{GetProcessId, OpenProcess};
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
@@ -45,6 +47,10 @@ impl Process {
         } else {
             Ok(pid)
         }
+    }
+
+    pub fn snapshot(&self, flags: SnapshotFlags) -> Result<Snapshot, Error> {
+        Snapshot::from_pid(self.pid()?, flags)
     }
 
     pub fn handle(&self) -> Result<HANDLE, Error> {
