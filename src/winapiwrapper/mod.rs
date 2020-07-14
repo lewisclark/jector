@@ -9,6 +9,6 @@ pub mod securityattributes;
 pub mod snapshot;
 pub mod snapshotflags;
 pub mod thread;
+pub mod threadaccess;
 pub mod threadcreationflags;
 pub mod virtualmem;
-pub mod threadaccess;

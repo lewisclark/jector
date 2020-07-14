@@ -56,13 +56,19 @@ impl Process {
     }
 
     // FIXME: This returns the first thread of many. Maybe turn it into an iterator?
-    pub fn main_thread(&self, access: ThreadAccess, inherit_handle: bool) -> Result<Option<Thread>, Error> {
+    pub fn main_thread(
+        &self,
+        access: ThreadAccess,
+        inherit_handle: bool,
+    ) -> Result<Option<Thread>, Error> {
         let snapshot = self.snapshot(SnapshotFlags::TH32CS_SNAPTHREAD)?;
         let pid = self.pid()?;
 
         for thread_entry in snapshot.thread_entries() {
             if pid == thread_entry.th32OwnerProcessID {
-                return Ok(Some(unsafe { Thread::from_id(thread_entry.th32ThreadID, access, inherit_handle)? }));
+                return Ok(Some(unsafe {
+                    Thread::from_id(thread_entry.th32ThreadID, access, inherit_handle)?
+                }));
             }
         }
 

@@ -1,8 +1,8 @@
 use super::error::Error;
 use super::process::Process;
 use super::securityattributes::SecurityAttributes;
-use super::threadcreationflags::ThreadCreationFlags;
 use super::threadaccess::ThreadAccess;
+use super::threadcreationflags::ThreadCreationFlags;
 use std::ffi::c_void;
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
