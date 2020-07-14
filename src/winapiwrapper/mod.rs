@@ -11,3 +11,4 @@ pub mod snapshotflags;
 pub mod thread;
 pub mod threadcreationflags;
 pub mod virtualmem;
+pub mod threadaccess;

@@ -1,0 +1,23 @@
+use winapi::um::winnt;
+
+bitflags! {
+    pub struct ThreadAccess: u32 {
+        const DELETE = winnt::DELETE;
+        const READ_CONTROL = winnt::READ_CONTROL;
+        const SYNCHRONIZE = winnt::SYNCHRONIZE;
+        const WRITE_DAC = winnt::WRITE_DAC;
+        const WRITE_OWNER = winnt::WRITE_OWNER;
+        const THREAD_ALL_ACCESS = winnt::THREAD_ALL_ACCESS;
+        const THREAD_DIRECT_IMPERSONATION = winnt::THREAD_DIRECT_IMPERSONATION;
+        const THREAD_GET_CONTEXT = winnt::THREAD_GET_CONTEXT;
+        const THREAD_IMPERSONATE = winnt::THREAD_IMPERSONATE;
+        const THREAD_QUERY_INFORMATION = winnt::THREAD_QUERY_INFORMATION;
+        const THREAD_QUERY_LIMITED_INFORMATION = winnt::THREAD_QUERY_LIMITED_INFORMATION;
+        const THREAD_SET_CONTEXT = winnt::THREAD_SET_CONTEXT;
+        const THREAD_SET_INFORMATION = winnt::THREAD_SET_INFORMATION;
+        const THREAD_SET_LIMITED_INFORMATION = winnt::THREAD_SET_LIMITED_INFORMATION;
+        const THREAD_SET_THREAD_TOKEN = winnt::THREAD_SET_THREAD_TOKEN;
+        const THREAD_SUSPEND_RESUME = winnt::THREAD_SUSPEND_RESUME;
+        const THREAD_TERMINATE = winnt::THREAD_TERMINATE;
+    }
+}

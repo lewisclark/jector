@@ -2,11 +2,12 @@ use super::error::Error;
 use super::process::Process;
 use super::securityattributes::SecurityAttributes;
 use super::threadcreationflags::ThreadCreationFlags;
+use super::threadaccess::ThreadAccess;
 use std::ffi::c_void;
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
-use winapi::um::processthreadsapi::{CreateRemoteThread, GetExitCodeThread};
+use winapi::um::processthreadsapi::{CreateRemoteThread, GetExitCodeThread, OpenThread};
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::WAIT_FAILED;
 use winapi::um::winnt::HANDLE;
@@ -20,6 +21,16 @@ pub struct Thread {
 impl Thread {
     pub unsafe fn from_handle(handle: HANDLE) -> Self {
         Self { handle }
+    }
+
+    pub fn from_id(id: u32, access: ThreadAccess, inherit_handle: bool) -> Result<Self, Error> {
+        let handle = unsafe { OpenThread(access.bits(), inherit_handle as i32, id) };
+
+        if handle.is_null() {
+            Err(Error::new("OpenThread returned NULL".to_string()))
+        } else {
+            Ok(unsafe { Self::from_handle(handle) })
+        }
     }
 
     pub fn spawn_remote(

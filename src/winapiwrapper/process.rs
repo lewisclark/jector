@@ -2,6 +2,8 @@ use super::error::Error;
 use super::processaccess::ProcessAccess;
 use super::snapshot::Snapshot;
 use super::snapshotflags::SnapshotFlags;
+use super::thread::Thread;
+use super::threadaccess::ThreadAccess;
 use std::ops::Drop;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::processthreadsapi::{GetProcessId, OpenProcess};
@@ -51,6 +53,20 @@ impl Process {
 
     pub fn snapshot(&self, flags: SnapshotFlags) -> Result<Snapshot, Error> {
         Snapshot::from_pid(self.pid()?, flags)
+    }
+
+    // FIXME: This returns the first thread of many. Maybe turn it into an iterator?
+    pub fn main_thread(&self, access: ThreadAccess, inherit_handle: bool) -> Result<Option<Thread>, Error> {
+        let snapshot = self.snapshot(SnapshotFlags::TH32CS_SNAPTHREAD)?;
+        let pid = self.pid()?;
+
+        for thread_entry in snapshot.thread_entries() {
+            if pid == thread_entry.th32OwnerProcessID {
+                return Ok(Some(unsafe { Thread::from_id(thread_entry.th32ThreadID, access, inherit_handle)? }));
+            }
+        }
+
+        Ok(None)
     }
 
     pub fn handle(&self) -> Result<HANDLE, Error> {
