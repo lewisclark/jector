@@ -2,7 +2,7 @@ use super::error::Error;
 use super::processaccess::ProcessAccess;
 use std::ops::Drop;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::processthreadsapi::OpenProcess;
+use winapi::um::processthreadsapi::{OpenProcess, GetProcessId};
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
@@ -34,6 +34,16 @@ impl Process {
         } else {
             self.handle = 0 as HANDLE;
             Ok(())
+        }
+    }
+
+    pub fn pid(&self) -> Result<u32, Error> {
+        let pid = unsafe { GetProcessId(self.handle) };
+
+        if pid == 0 {
+            Err(Error::new("GetProcessId returned NULL".to_string()))
+        } else {
+            Ok(pid)
         }
     }
 
