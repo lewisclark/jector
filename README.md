@@ -13,3 +13,21 @@ Jector doesn't use LoadLibrary like many other injectors. Instead, it allocates 
 ## Caveats
 - Currently only supports injecting 64-bit libraries thus can only inject into 64-bit processes
 - Only supports a single method of injection
+
+## Todo
+### Essential
+- [ ] Create an Activation Context for the injected library
+- [x] Perform base relocation if necessary
+- [x] Resolve imports
+- [ ] Resolve delayed imports
+- [ ] Apply the correct memory protection to injected library sections
+- [ ] Fix exception handling
+- [ ] Initialize security cookie
+- [ ] Initialize static TLS
+- [ ] Fix TLS callbacks
+### Non-essential
+- [ ] Erase PE header
+- [ ] Disallow the same library from being loaded more than once
+- [ ] Support injecting 32-bit libraries into 32-bit processes
+- [ ] Do base relocation outside of the loader routine
+- [ ] Resolve imports outside of the loader routine
