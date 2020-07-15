@@ -81,6 +81,21 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         );
     }
 
+    // Initialize static TLS
+    let tls_dir = pe.tls()?;
+    let tls_data_mem = VirtualMem::alloc(
+        &process,
+        0,
+        (tls_dir.image().EndAddressOfRawData - tls_dir.image().StartAddressOfRawData) as usize,
+        AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
+        ProtectFlag::PAGE_READWRITE,
+    )?;
+
+    let tls_index_ptr = (image_mem.address() as usize + tls_dir.image().AddressOfIndex as usize) as *mut usize;
+
+    println!("base -> {:x}", image_mem.address() as usize);
+    println!("aoi -> {:x}", tls_dir.image().AddressOfIndex as usize);
+
     // Write image buffer to image memory
     image_mem.write(image_buf.to_bytes().as_ptr(), image_buf.len())?;
 
