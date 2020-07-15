@@ -91,10 +91,24 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         ProtectFlag::PAGE_READWRITE,
     )?;
 
-    let tls_index_ptr = (image_mem.address() as usize + tls_dir.image().AddressOfIndex as usize) as *mut usize;
+    let tls_index_ptr =
+        (image_mem.address() as usize + tls_dir.image().AddressOfIndex as usize) as *mut usize;
 
-    println!("base -> {:x}", image_mem.address() as usize);
-    println!("aoi -> {:x}", tls_dir.image().AddressOfIndex as usize);
+    println!("size of raw data -> {}", (tls_dir.image().EndAddressOfRawData - tls_dir.image().StartAddressOfRawData) as usize);
+    println!("raw data (len: {}) -> {:?}", tls_dir.raw_data()?.len(), tls_dir.raw_data()?);
+    println!("callbacks -> {:?}", tls_dir.callbacks()?);
+    println!("tls slot -> {}", tls_dir.slot()?);
+
+    let thread = process
+        .main_thread(
+            crate::winapiwrapper::threadaccess::ThreadAccess::THREAD_ALL_ACCESS,
+            false,
+        )?
+        .unwrap();
+
+    let teb = thread.teb()?;
+
+    println!("teb -> {:x}", teb as usize);
 
     // Write image buffer to image memory
     image_mem.write(image_buf.to_bytes().as_ptr(), image_buf.len())?;
