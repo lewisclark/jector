@@ -1,18 +1,42 @@
 use super::error::Error;
+use super::library::Library;
 use super::process::Process;
 use super::securityattributes::SecurityAttributes;
 use super::threadaccess::ThreadAccess;
 use super::threadcreationflags::ThreadCreationFlags;
 use std::ffi::c_void;
+use std::mem::{size_of, transmute};
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
+use winapi::shared::minwindef::{PULONG, ULONG};
+use winapi::shared::ntdef::NTSTATUS;
 use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
-use winapi::um::processthreadsapi::{CreateRemoteThread, GetExitCodeThread, OpenThread};
+use winapi::um::processthreadsapi::{
+    CreateRemoteThread, GetExitCodeThread, OpenThread, THREAD_INFORMATION_CLASS,
+};
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::WAIT_FAILED;
-use winapi::um::winnt::HANDLE;
+use winapi::um::winnt::{HANDLE, PVOID};
 
 pub type StartRoutine = unsafe extern "system" fn(*mut winapic_void) -> u32;
+type NtQueryInformationThreadFn =
+    extern "system" fn(HANDLE, THREAD_INFORMATION_CLASS, PVOID, ULONG, PULONG) -> NTSTATUS;
+
+#[repr(C)]
+pub struct CLIENT_ID {
+    UniqueProcess: HANDLE,
+    UniqueThread: HANDLE,
+}
+
+#[repr(C)]
+pub struct THREAD_BASIC_INFORMATION {
+    ExitStatus: NTSTATUS,
+    TebBaseAddress: PVOID,
+    ClientId: CLIENT_ID,
+    AffinityMask: u32,
+    Priority: u32,
+    BasePriority: u32,
+}
 
 pub struct Thread {
     handle: HANDLE,
@@ -94,6 +118,45 @@ impl Thread {
             Err(Error::new("WaitForSingleObject failed".to_string()))
         } else {
             Ok(ret)
+        }
+    }
+
+    pub fn query_information(&self) -> Result<THREAD_BASIC_INFORMATION, Error> {
+        let nt_query_information_thread = unsafe {
+            transmute::<*const (), NtQueryInformationThreadFn>(
+                Library::load("ntdll.dll")?.proc_address("NtQueryInformationThread")?,
+            )
+        };
+
+        let mut thread_basic_info = THREAD_BASIC_INFORMATION {
+            ExitStatus: 0,
+            TebBaseAddress: 0 as PVOID,
+            ClientId: CLIENT_ID {
+                UniqueProcess: 0 as HANDLE,
+                UniqueThread: 0 as HANDLE,
+            },
+            AffinityMask: 0,
+            Priority: 0,
+            BasePriority: 0,
+        };
+
+        let ntstatus = unsafe {
+            nt_query_information_thread(
+                self.handle,
+                0,
+                &mut thread_basic_info as *const THREAD_BASIC_INFORMATION as PVOID,
+                size_of::<THREAD_BASIC_INFORMATION>() as u32,
+                0 as PULONG,
+            )
+        };
+
+        if ntstatus >= 0 {
+            Ok(thread_basic_info)
+        } else {
+            Err(Error::new(format!(
+                "NtQueryInformationThread returned failure NT status code: {:x}",
+                ntstatus
+            )))
         }
     }
 }
