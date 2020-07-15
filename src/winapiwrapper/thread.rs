@@ -16,7 +16,7 @@ use winapi::um::processthreadsapi::{
 };
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::WAIT_FAILED;
-use winapi::um::winnt::{HANDLE, PVOID};
+use winapi::um::winnt::{HANDLE, NT_TIB, PVOID};
 
 pub type StartRoutine = unsafe extern "system" fn(*mut winapic_void) -> u32;
 type NtQueryInformationThreadFn =
@@ -36,6 +36,16 @@ pub struct THREAD_BASIC_INFORMATION {
     AffinityMask: u32,
     Priority: u32,
     BasePriority: u32,
+}
+
+#[repr(C)]
+pub struct TEB {
+    // FIXME: Struct isn't filled out entirely
+    Tib: NT_TIB,
+    EnvironmentPointer: PVOID,
+    Cid: CLIENT_ID,
+    ActiveRpcInfo: PVOID,
+    ThreadLocalStoragePointer: PVOID,
 }
 
 pub struct Thread {
@@ -157,6 +167,16 @@ impl Thread {
                 "NtQueryInformationThread returned failure NT status code: {:x}",
                 ntstatus
             )))
+        }
+    }
+
+    pub fn teb(&self) -> Result<*const TEB, Error> {
+        let teb_ptr = self.query_information()?.TebBaseAddress;
+
+        if teb_ptr as usize != 0 {
+            Ok(teb_ptr as *const TEB)
+        } else {
+            Err(Error::new("TebBaseAddress is NULL".to_string()))
         }
     }
 }
