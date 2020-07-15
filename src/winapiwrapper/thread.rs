@@ -30,22 +30,22 @@ pub struct CLIENT_ID {
 
 #[repr(C)]
 pub struct THREAD_BASIC_INFORMATION {
-    ExitStatus: NTSTATUS,
-    TebBaseAddress: PVOID,
-    ClientId: CLIENT_ID,
-    AffinityMask: u32,
-    Priority: u32,
-    BasePriority: u32,
+    pub ExitStatus: NTSTATUS,
+    pub TebBaseAddress: PVOID,
+    pub ClientId: CLIENT_ID,
+    pub AffinityMask: u32,
+    pub Priority: u32,
+    pub BasePriority: u32,
 }
 
 #[repr(C)]
 pub struct TEB {
     // FIXME: Struct isn't filled out entirely
-    Tib: NT_TIB,
-    EnvironmentPointer: PVOID,
-    Cid: CLIENT_ID,
-    ActiveRpcInfo: PVOID,
-    ThreadLocalStoragePointer: PVOID,
+    pub Tib: NT_TIB,
+    pub EnvironmentPointer: PVOID,
+    pub Cid: CLIENT_ID,
+    pub ActiveRpcInfo: PVOID,
+    pub ThreadLocalStoragePointer: PVOID,
 }
 
 pub struct Thread {
