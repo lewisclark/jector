@@ -7,6 +7,7 @@ use crate::winapiwrapper::thread::{self, Thread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
+use crate::error::Error;
 use pelite::pe64::{Pe, PeFile};
 use std::error;
 use std::ffi::c_void;
@@ -83,28 +84,35 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
 
     // Initialize static TLS
     let tls_dir = pe.tls()?;
-    let tls_data_mem = VirtualMem::alloc(
+    let tls_dir_image = tls_dir.image();
+    let tls_raw_data_size =
+        (tls_dir_image.EndAddressOfRawData - tls_dir_image.StartAddressOfRawData) as usize;
+
+    let mut tls_data_mem = VirtualMem::alloc(
         &process,
         0,
-        (tls_dir.image().EndAddressOfRawData - tls_dir.image().StartAddressOfRawData) as usize,
+        tls_raw_data_size,
         AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
         ProtectFlag::PAGE_READWRITE,
     )?;
 
-    let tls_index_ptr =
-        (image_mem.address() as usize + tls_dir.image().AddressOfIndex as usize) as *mut usize;
+    println!(
+        "Allocated TLS buffer at {:x}",
+        tls_data_mem.address() as usize
+    );
 
-    println!("size of raw data -> {}", (tls_dir.image().EndAddressOfRawData - tls_dir.image().StartAddressOfRawData) as usize);
-    println!("raw data (len: {}) -> {:?}", tls_dir.raw_data()?.len(), tls_dir.raw_data()?);
-    println!("callbacks -> {:?}", tls_dir.callbacks()?);
-    println!("tls slot -> {}", tls_dir.slot()?);
+    let tls_raw_data = tls_dir.raw_data()?;
+    tls_data_mem.write(tls_raw_data.as_ptr(), tls_raw_data.len());
 
-    let thread = process
-        .main_thread(
-            crate::winapiwrapper::threadaccess::ThreadAccess::THREAD_ALL_ACCESS,
-            false,
-        )?
-        .unwrap();
+    let thread = match process.main_thread(
+        crate::winapiwrapper::threadaccess::ThreadAccess::THREAD_ALL_ACCESS,
+        false,
+    )? {
+        Some(thread) => Ok(thread),
+        None => Err(Error::new(
+            "Failed to obtain a pid owning thread to obtain the TEB".to_string(),
+        )),
+    }?;
 
     let teb = thread.teb()?;
 
