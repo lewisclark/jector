@@ -1,3 +1,4 @@
+use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
@@ -7,7 +8,6 @@ use crate::winapiwrapper::thread::{self, Thread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
-use crate::error::Error;
 use pelite::pe64::{Pe, PeFile};
 use std::error;
 use std::ffi::c_void;
@@ -50,6 +50,9 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
         ProtectFlag::PAGE_EXECUTE_READWRITE,
     )?;
+
+    let image_delta =
+        (image_mem.address() as usize).wrapping_sub(pe.optional_header().ImageBase as usize);
 
     println!(
         "Allocated image buffer at {:x}",
@@ -110,13 +113,21 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     )? {
         Some(thread) => Ok(thread),
         None => Err(Error::new(
-            "Failed to obtain a pid owning thread to obtain the TEB".to_string(),
+            "Failed to obtain a pid owning thread handle to the target process".to_string(),
         )),
     }?;
 
+    // We must add image delta because AddressOfIndex relies on base relocation
+    let mut address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
+    let tls_index = 0;
     let teb = thread.teb()?;
 
-    println!("teb -> {:x}", teb as usize);
+    // TODO for static TLS initialization
+    // Actually compute TLS index
+    // Implement a WriteProcessMemory wrapper for Process (needs refactoring with VirtualMem
+    // (trait?))
+    // Read teb.ThreadLocalStoragePointer if == 0 then allocate (size = ????)
+    // write tls_data_mem ptr to teb.ThreadLocalStoragePointer[my tls index]
 
     // Write image buffer to image memory
     image_mem.write(image_buf.to_bytes().as_ptr(), image_buf.len())?;
@@ -144,8 +155,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     let lib_kernel32 = Library::load("kernel32.dll")?;
     let loader_info = LoaderInfo {
         image_base: image_mem.address() as usize,
-        image_delta: (image_mem.address() as usize)
-            .wrapping_sub(pe.optional_header().ImageBase as usize),
+        image_delta: image_delta,
         optional_header: pe.optional_header().clone(),
         basereloc_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize],
         import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
