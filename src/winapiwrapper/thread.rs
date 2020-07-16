@@ -1,4 +1,5 @@
 use super::error::Error;
+use super::handleowner::HandleOwner;
 use super::library::Library;
 use super::process::Process;
 use super::securityattributes::SecurityAttributes;
@@ -53,10 +54,6 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub unsafe fn from_handle(handle: HANDLE) -> Self {
-        Self { handle }
-    }
-
     pub fn from_id(id: u32, access: ThreadAccess, inherit_handle: bool) -> Result<Self, Error> {
         let handle = unsafe { OpenThread(access.bits(), inherit_handle as i32, id) };
 
@@ -93,7 +90,7 @@ impl Thread {
 
         let handle = unsafe {
             CreateRemoteThread(
-                process.handle()?,
+                process.handle(),
                 thread_attributes,
                 stack_size.unwrap_or(0),
                 Some(routine),
@@ -178,5 +175,15 @@ impl Thread {
         } else {
             Err(Error::new("TebBaseAddress is NULL".to_string()))
         }
+    }
+}
+
+impl HandleOwner for Thread {
+    unsafe fn from_handle(handle: HANDLE) -> Thread {
+        Self { handle }
+    }
+
+    fn handle(&self) -> HANDLE {
+        self.handle
     }
 }

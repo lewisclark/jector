@@ -1,4 +1,5 @@
 use super::error::Error;
+use super::handleowner::HandleOwner;
 use super::processaccess::ProcessAccess;
 use super::snapshot::Snapshot;
 use super::snapshotflags::SnapshotFlags;
@@ -74,18 +75,20 @@ impl Process {
 
         Ok(None)
     }
-
-    pub fn handle(&self) -> Result<HANDLE, Error> {
-        if self.handle.is_null() {
-            Err(Error::new("Attempted to retrieve NULL handle".to_string()))
-        } else {
-            Ok(self.handle)
-        }
-    }
 }
 
 impl Drop for Process {
     fn drop(&mut self) {
         self.close().unwrap();
+    }
+}
+
+impl HandleOwner for Process {
+    unsafe fn from_handle(handle: HANDLE) -> Self {
+        Self { handle }
+    }
+
+    fn handle(&self) -> HANDLE {
+        self.handle
     }
 }

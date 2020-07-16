@@ -1,20 +1,18 @@
 use super::error::Error;
+use super::handleowner::HandleOwner;
 use super::snapshotflags::SnapshotFlags;
-use super::thread::Thread;
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::tlhelp32::CreateToolhelp32Snapshot;
 use winapi::um::tlhelp32::{Thread32First, Thread32Next, THREADENTRY32};
 use winapi::um::winnt::HANDLE;
+
+// TODO: Clean up snapshot with CloseHandle
 
 pub struct Snapshot {
     handle: HANDLE,
 }
 
 impl Snapshot {
-    pub unsafe fn from_handle(handle: HANDLE) -> Self {
-        Self { handle }
-    }
-
     pub fn from_pid(pid: u32, flags: SnapshotFlags) -> Result<Self, Error> {
         let h = unsafe { CreateToolhelp32Snapshot(flags.bits(), pid) };
 
@@ -27,12 +25,18 @@ impl Snapshot {
         }
     }
 
-    pub fn handle(&self) -> HANDLE {
-        self.handle
-    }
-
     pub fn thread_entries(self) -> SnapshotThreadEntries {
         SnapshotThreadEntries::new(self)
+    }
+}
+
+impl HandleOwner for Snapshot {
+    unsafe fn from_handle(handle: HANDLE) -> Self {
+        Self { handle }
+    }
+
+    fn handle(&self) -> HANDLE {
+        self.handle
     }
 }
 
