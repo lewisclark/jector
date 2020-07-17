@@ -7,7 +7,6 @@ use crate::winapiwrapper::protectflag::ProtectFlag;
 use crate::winapiwrapper::thread::{self, Thread, TEB};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
-use bytebuffer::{ByteBuffer, Endian};
 use field_offset::offset_of;
 use pelite::pe64::{Pe, PeFile};
 use std::error;
@@ -55,6 +54,8 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         ProtectFlag::PAGE_EXECUTE_READWRITE,
     )?;
 
+    image_mem.set_free_on_drop(false);
+
     let image_delta =
         (image_mem.address() as usize).wrapping_sub(pe.optional_header().ImageBase as usize);
 
@@ -64,23 +65,15 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         image_mem.size(),
     );
 
-    image_mem.set_free_on_drop(false);
-
-    // Initialize image buffer
-    let mut image_buf = ByteBuffer::new();
-    image_buf.resize(image_mem.size());
-    image_buf.set_endian(Endian::LittleEndian);
-
     // Write image headers
-    image_buf.write_bytes(&image[..pe.optional_header().SizeOfHeaders as usize]);
+    image_mem.write_memory(&image[..pe.optional_header().SizeOfHeaders as usize], 0)?;
 
     // Write image sections
     for section in pe.section_headers() {
         let start = section.PointerToRawData as usize;
         let size = section.SizeOfRawData as usize;
 
-        image_buf.set_wpos(section.VirtualAddress as usize);
-        image_buf.write_bytes(&image[start..start + size]);
+        image_mem.write_memory(&image[start..start + size], section.VirtualAddress as usize)?;
 
         println!(
             "Section {} written at {:x} with size {:x}",
@@ -194,9 +187,6 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     // Write our TLS memory chunk to the TLS pointer based on index
     process.write_memory(&tls_data_mem.address().to_ne_bytes(), tls_index_ptr)?;
 
-    // Write image buffer to image memory
-    image_mem.write_memory(&image_buf.to_bytes(), 0)?;
-
     // Set up SEH for loader
     let exception = pe.exception()?;
 
@@ -231,11 +221,6 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         loader_mem.size(),
     );
 
-    // Initialize loader buffer
-    let mut loader_buf = ByteBuffer::new();
-    loader_buf.resize(loader_mem.size());
-    loader_buf.set_endian(Endian::LittleEndian);
-
     // Construct LoaderInfo
     let lib_kernel32 = Library::load("kernel32.dll")?;
     let loader_info = LoaderInfo {
@@ -264,17 +249,14 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         )
     };
 
-    loader_buf.write_bytes(&loaderinfo_bytes);
+    loader_mem.write_memory(loaderinfo_bytes, 0)?;
 
     // Write loader fn bytes to loader buffer
     let loader_fn_bytes = unsafe {
         slice::from_raw_parts(loader as *const u8, loader_end as usize - loader as usize)
     };
 
-    loader_buf.write_bytes(&loader_fn_bytes);
-
-    // Write loader buffer to loader memory
-    loader_mem.write_memory(&loader_buf.to_bytes(), 0)?;
+    loader_mem.write_memory(loader_fn_bytes, loaderinfo_bytes.len())?;
 
     // Transmute the loader buffer into a function pointer
     let loader_mem_as_fn = unsafe {
