@@ -8,7 +8,7 @@ use super::threadaccess::ThreadAccess;
 use std::ops::Drop;
 use winapi::ctypes::c_void;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::memoryapi::WriteProcessMemory;
+use winapi::um::memoryapi::{WriteProcessMemory, ReadProcessMemory};
 use winapi::um::processthreadsapi::{GetProcessId, OpenProcess};
 use winapi::um::winnt::HANDLE;
 
@@ -80,7 +80,7 @@ impl Process {
 
     pub fn write_memory(&self, data: &[u8], address: usize) -> Result<usize, Error> {
         if address == 0 {
-            return Err(Error::new("Address memory is null".to_string()));
+            return Err(Error::new("Address to write to is null".to_string()));
         }
 
         let (ret, num_bytes_written) = unsafe {
@@ -101,6 +101,34 @@ impl Process {
             Err(Error::new("WriteProcesMemory failed".to_string()))
         } else {
             Ok(num_bytes_written)
+        }
+    }
+
+    pub fn read_memory(&self, address: usize, buffer: &mut [u8]) -> Result<usize, Error> {
+        if address == 0 {
+            return Err(Error::new("Address to read from is null".to_string()));
+        } else if buffer.len() == 0 {
+            return Err(Error::new("Buffer length is zero".to_string()));
+        }
+
+        let (ret, num_bytes_read) = unsafe {
+            let mut num_bytes_read = 0;
+
+            let ret = ReadProcessMemory(
+                self.handle(),
+                address as *mut c_void,
+                buffer.as_ptr() as *mut c_void,
+                buffer.len(),
+                &mut num_bytes_read,
+            );
+
+            (ret, num_bytes_read)
+        };
+
+        if ret == 0 {
+            Err(Error::new("ReadProcesMemory failed".to_string()))
+        } else {
+            Ok(num_bytes_read)
         }
     }
 }
