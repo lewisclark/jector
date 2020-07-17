@@ -23,6 +23,7 @@ use winapi::um::winnt::{
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
+const MAX_TLS_INDEX: usize = 1088;
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
@@ -119,41 +120,58 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         )),
     }?;
 
-    // We must add image delta because AddressOfIndex relies on base relocation
-    let address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
-    let tls_index: usize = 71;
-
-    // Write TLS index to tls directory AddressOfIndex
-    process.write_memory(&tls_index.to_ne_bytes(), address_of_index)?;
-
     // Obtain the TLS pointer from TEB and then compute our TLS pointer based on index
-    let (tls_ptr, tls_index_ptr) = {
+    let tls_ptr = {
         let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
         process.read_memory(
             &mut buf,
             thread.teb()? as usize + offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset(),
         )?;
 
-        let tls_ptr = usize::from_ne_bytes(buf);
-        let tls_index_ptr = tls_ptr + (tls_index * PTR_SIZE);
-
-        (tls_ptr, tls_index_ptr)
+        usize::from_ne_bytes(buf)
     };
 
-    // Write our TLS memory chunk to the TLS pointer based on index
-    process.write_memory(&tls_data_mem.address().to_ne_bytes(), tls_index_ptr)?;
+    // TODO: If ThreadLocalStoragePointer is null then allocate memory for it
 
-    println!("AddressOfIndex -> {:x}", address_of_index);
     println!("TLS array -> {:x}", tls_ptr);
+
+    // Find a usable TLS index
+    let tls_index = {
+        let mut tls_index = usize::max_value();
+        for index in 0..MAX_TLS_INDEX {
+            let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
+            process.read_memory(&mut buf, tls_ptr + (index * PTR_SIZE))?;
+
+            if usize::from_ne_bytes(buf) == 0 {
+                tls_index = index;
+                break;
+            }
+        }
+
+        if tls_index != usize::max_value() {
+            Ok(tls_index)
+        } else {
+            Err(Error::new("Failed to obtain usable TLS index".to_string()))
+        }
+    }?;
+
+    // Calculate the thread's TLS memory block location
+    let tls_index_ptr = tls_ptr + (tls_index * PTR_SIZE);
+
     println!(
         "Injector thread TLS index -> {} which indexes to {:x}",
         tls_index, tls_index_ptr
     );
 
-    // TODO for static TLS initialization
-    // Actually compute TLS index
-    // Read teb.ThreadLocalStoragePointer if == 0 then allocate (size = ????)
-    // write tls_data_mem ptr to teb.ThreadLocalStoragePointer[my tls index]
+    // We must add image delta because AddressOfIndex relies on base relocation
+    let address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
+    // Write TLS index to tls directory AddressOfIndex
+    process.write_memory(&tls_index.to_ne_bytes(), address_of_index)?;
+
+    println!("AddressOfIndex -> {:x}", address_of_index);
+
+    // Write our TLS memory chunk to the TLS pointer based on index
+    process.write_memory(&tls_data_mem.address().to_ne_bytes(), tls_index_ptr)?;
 
     // Write image buffer to image memory
     image_mem.write_memory(&image_buf.to_bytes(), 0)?;
