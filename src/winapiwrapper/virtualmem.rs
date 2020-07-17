@@ -90,6 +90,10 @@ impl<'a> VirtualMem<'a> {
     pub fn write_memory(&self, data: &[u8], offset: usize) -> Result<usize, Error> {
         self.process.write_memory(data, self.address + offset)
     }
+
+    pub fn read_memory(&self, data: &mut [u8], offset: usize) -> Result<usize, Error> {
+        self.process.read_memory(data, self.address + offset)
+    }
 }
 
 impl Drop for VirtualMem<'_> {

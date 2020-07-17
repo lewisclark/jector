@@ -104,7 +104,7 @@ impl Process {
         }
     }
 
-    pub fn read_memory(&self, address: usize, buffer: &mut [u8]) -> Result<usize, Error> {
+    pub fn read_memory(&self, buffer: &mut [u8], address: usize) -> Result<usize, Error> {
         if address == 0 {
             return Err(Error::new("Address to read from is null".to_string()));
         } else if buffer.len() == 0 {
@@ -126,7 +126,7 @@ impl Process {
         };
 
         if ret == 0 {
-            Err(Error::new("ReadProcesMemory failed".to_string()))
+            Err(Error::new("ReadProcessMemory failed".to_string()))
         } else {
             Ok(num_bytes_read)
         }
