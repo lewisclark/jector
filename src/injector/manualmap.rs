@@ -120,18 +120,33 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         )),
     }?;
 
+    let teb = thread.teb()? as usize;
+    let tlsp_offset = offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset();
+
     // Obtain the TLS pointer from TEB and then compute our TLS pointer based on index
-    let tls_ptr = {
+    let mut tls_ptr = {
         let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
-        process.read_memory(
-            &mut buf,
-            thread.teb()? as usize + offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset(),
-        )?;
+        process.read_memory(&mut buf, teb + tlsp_offset)?;
 
         usize::from_ne_bytes(buf)
     };
 
-    // TODO: If ThreadLocalStoragePointer is null then allocate memory for it
+    // Allocate a buffer for ThreadLocalStoragePointer because it's null
+    if tls_ptr == 0 {
+        let mut tls_array = VirtualMem::alloc(
+            &process,
+            0,
+            MAX_TLS_INDEX * PTR_SIZE,
+            AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
+            ProtectFlag::PAGE_READWRITE,
+        )?;
+
+        tls_array.set_free_on_drop(false);
+        tls_ptr = tls_array.address();
+        process.write_memory(&tls_ptr.to_ne_bytes(), teb + tlsp_offset)?;
+
+        println!("Allocated a buffer for ThreadLocalStoragePointer because it was null");
+    }
 
     println!("TLS array -> {:x}", tls_ptr);
 
