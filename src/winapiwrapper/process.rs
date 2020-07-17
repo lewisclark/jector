@@ -6,7 +6,9 @@ use super::snapshotflags::SnapshotFlags;
 use super::thread::Thread;
 use super::threadaccess::ThreadAccess;
 use std::ops::Drop;
+use winapi::ctypes::c_void;
 use winapi::um::handleapi::CloseHandle;
+use winapi::um::memoryapi::WriteProcessMemory;
 use winapi::um::processthreadsapi::{GetProcessId, OpenProcess};
 use winapi::um::winnt::HANDLE;
 
@@ -74,6 +76,32 @@ impl Process {
         }
 
         Ok(None)
+    }
+
+    pub fn write_memory(&self, data: &[u8], address: usize) -> Result<usize, Error> {
+        if address == 0 {
+            return Err(Error::new("Address memory is null".to_string()));
+        }
+
+        let (ret, num_bytes_written) = unsafe {
+            let mut num_bytes_written = 0;
+
+            let ret = WriteProcessMemory(
+                self.handle(),
+                address as *mut c_void,
+                data.as_ptr() as *const c_void,
+                data.len(),
+                &mut num_bytes_written,
+            );
+
+            (ret, num_bytes_written)
+        };
+
+        if ret == 0 {
+            Err(Error::new("WriteProcesMemory failed".to_string()))
+        } else {
+            Ok(num_bytes_written)
+        }
     }
 }
 

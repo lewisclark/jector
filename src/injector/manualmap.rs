@@ -91,7 +91,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     let tls_raw_data_size =
         (tls_dir_image.EndAddressOfRawData - tls_dir_image.StartAddressOfRawData) as usize;
 
-    let mut tls_data_mem = VirtualMem::alloc(
+    let tls_data_mem = VirtualMem::alloc(
         &process,
         0,
         tls_raw_data_size,
@@ -105,7 +105,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     );
 
     let tls_raw_data = tls_dir.raw_data()?;
-    tls_data_mem.write(tls_raw_data.as_ptr(), tls_raw_data.len());
+    tls_data_mem.write_memory(tls_raw_data, 0);
 
     let thread = match process.main_thread(
         crate::winapiwrapper::threadaccess::ThreadAccess::THREAD_ALL_ACCESS,
@@ -118,7 +118,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     }?;
 
     // We must add image delta because AddressOfIndex relies on base relocation
-    let mut address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
+    let address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
     let tls_index = 0;
     let teb = thread.teb()?;
 
@@ -130,10 +130,10 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     // write tls_data_mem ptr to teb.ThreadLocalStoragePointer[my tls index]
 
     // Write image buffer to image memory
-    image_mem.write(image_buf.to_bytes().as_ptr(), image_buf.len())?;
+    image_mem.write_memory(&image_buf.to_bytes(), 0)?;
 
     // Allocate loader memory
-    let mut loader_mem = VirtualMem::alloc(
+    let loader_mem = VirtualMem::alloc(
         &process,
         0,
         (loader_end as usize - loader as usize) + mem::size_of::<LoaderInfo>(),
@@ -187,7 +187,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     loader_buf.write_bytes(&loader_fn_bytes);
 
     // Write loader buffer to loader memory
-    loader_mem.write(loader_buf.to_bytes().as_ptr(), loader_buf.len())?;
+    loader_mem.write_memory(&loader_buf.to_bytes(), 0)?;
 
     // Transmute the loader buffer into a function pointer
     let loader_mem_as_fn = unsafe {

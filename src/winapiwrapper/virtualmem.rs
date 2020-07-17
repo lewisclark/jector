@@ -7,11 +7,11 @@ use super::protectflag::ProtectFlag;
 use std::ops::Drop;
 use winapi::ctypes::c_void;
 use winapi::shared::minwindef::LPVOID;
-use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx, WriteProcessMemory};
+use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
 
 pub struct VirtualMem<'a> {
     process: &'a Process,
-    address: *mut c_void,
+    address: usize,
     size: usize,
     free_on_drop: bool,
 }
@@ -39,7 +39,7 @@ impl<'a> VirtualMem<'a> {
         } else {
             Ok(Self {
                 process: process,
-                address: mem as *mut c_void,
+                address: mem as usize,
                 size: size,
                 free_on_drop: true,
             })
@@ -47,7 +47,7 @@ impl<'a> VirtualMem<'a> {
     }
 
     pub fn free(&mut self, freetype: FreeType) -> Result<(), Error> {
-        if self.address.is_null() {
+        if self.address == 0 {
             return Err(Error::new(
                 "Tried to free null virtual memory region".to_string(),
             ));
@@ -79,40 +79,16 @@ impl<'a> VirtualMem<'a> {
         self.free_on_drop = free_on_drop
     }
 
-    pub fn write(&mut self, src: *const u8, size: usize) -> Result<(), Error> {
-        if size > self.size {
-            return Err(Error::new(
-                "Arg size is greater than buffer size".to_string(),
-            ));
-        }
-
-        if self.address.is_null() {
-            return Err(Error::new("Allocated memory is null".to_string()));
-        }
-
-        let ret = unsafe {
-            WriteProcessMemory(
-                self.process.handle(),
-                self.address,
-                src as *const c_void,
-                size,
-                0 as *mut usize,
-            )
-        };
-
-        if ret == 0 {
-            Err(Error::new("WriteProcesMemory failed".to_string()))
-        } else {
-            Ok(())
-        }
-    }
-
-    pub fn address(&self) -> *const c_void {
+    pub fn address(&self) -> usize {
         self.address
     }
 
     pub fn size(&self) -> usize {
         self.size
+    }
+
+    pub fn write_memory(&self, data: &[u8], offset: usize) -> Result<usize, Error> {
+        self.process.write_memory(data, self.address + offset)
     }
 }
 
