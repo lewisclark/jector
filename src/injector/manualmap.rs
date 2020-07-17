@@ -1,12 +1,14 @@
+use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
-use crate::winapiwrapper::thread::{self, Thread};
+use crate::winapiwrapper::thread::{self, Thread, TEB};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
+use field_offset::offset_of;
 use pelite::pe64::{Pe, PeFile};
 use std::error;
 use std::ffi::c_void;
@@ -20,6 +22,8 @@ use winapi::um::winnt::{
     IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, LPCSTR,
 };
 
+const PTR_SIZE: usize = mem::size_of::<usize>();
+const MAX_TLS_INDEX: usize = 1088;
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
@@ -49,6 +53,9 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
         ProtectFlag::PAGE_EXECUTE_READWRITE,
     )?;
+
+    let image_delta =
+        (image_mem.address() as usize).wrapping_sub(pe.optional_header().ImageBase as usize);
 
     println!(
         "Allocated image buffer at {:x}",
@@ -81,11 +88,96 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         );
     }
 
+    // Initialize static TLS
+    let tls_dir = pe.tls()?;
+    let tls_dir_image = tls_dir.image();
+    let tls_raw_data_size =
+        (tls_dir_image.EndAddressOfRawData - tls_dir_image.StartAddressOfRawData) as usize;
+
+    let tls_data_mem = VirtualMem::alloc(
+        &process,
+        0,
+        tls_raw_data_size,
+        AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
+        ProtectFlag::PAGE_READWRITE,
+    )?;
+
+    println!(
+        "Allocated TLS buffer at {:x}",
+        tls_data_mem.address() as usize
+    );
+
+    let tls_raw_data = tls_dir.raw_data()?;
+    tls_data_mem.write_memory(tls_raw_data, 0)?;
+
+    let thread = match process.main_thread(
+        crate::winapiwrapper::threadaccess::ThreadAccess::THREAD_ALL_ACCESS,
+        false,
+    )? {
+        Some(thread) => Ok(thread),
+        None => Err(Error::new(
+            "Failed to obtain a pid owning thread handle to the target process".to_string(),
+        )),
+    }?;
+
+    // Obtain the TLS pointer from TEB and then compute our TLS pointer based on index
+    let tls_ptr = {
+        let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
+        process.read_memory(
+            &mut buf,
+            thread.teb()? as usize + offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset(),
+        )?;
+
+        usize::from_ne_bytes(buf)
+    };
+
+    // TODO: If ThreadLocalStoragePointer is null then allocate memory for it
+
+    println!("TLS array -> {:x}", tls_ptr);
+
+    // Find a usable TLS index
+    let tls_index = {
+        let mut tls_index = usize::max_value();
+        for index in 0..MAX_TLS_INDEX {
+            let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
+            process.read_memory(&mut buf, tls_ptr + (index * PTR_SIZE))?;
+
+            if usize::from_ne_bytes(buf) == 0 {
+                tls_index = index;
+                break;
+            }
+        }
+
+        if tls_index != usize::max_value() {
+            Ok(tls_index)
+        } else {
+            Err(Error::new("Failed to obtain usable TLS index".to_string()))
+        }
+    }?;
+
+    // Calculate the thread's TLS memory block location
+    let tls_index_ptr = tls_ptr + (tls_index * PTR_SIZE);
+
+    println!(
+        "Injector thread TLS index -> {} which indexes to {:x}",
+        tls_index, tls_index_ptr
+    );
+
+    // We must add image delta because AddressOfIndex relies on base relocation
+    let address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
+    // Write TLS index to tls directory AddressOfIndex
+    process.write_memory(&tls_index.to_ne_bytes(), address_of_index)?;
+
+    println!("AddressOfIndex -> {:x}", address_of_index);
+
+    // Write our TLS memory chunk to the TLS pointer based on index
+    process.write_memory(&tls_data_mem.address().to_ne_bytes(), tls_index_ptr)?;
+
     // Write image buffer to image memory
-    image_mem.write(image_buf.to_bytes().as_ptr(), image_buf.len())?;
+    image_mem.write_memory(&image_buf.to_bytes(), 0)?;
 
     // Allocate loader memory
-    let mut loader_mem = VirtualMem::alloc(
+    let loader_mem = VirtualMem::alloc(
         &process,
         0,
         (loader_end as usize - loader as usize) + mem::size_of::<LoaderInfo>(),
@@ -107,8 +199,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     let lib_kernel32 = Library::load("kernel32.dll")?;
     let loader_info = LoaderInfo {
         image_base: image_mem.address() as usize,
-        image_delta: (image_mem.address() as usize)
-            .wrapping_sub(pe.optional_header().ImageBase as usize),
+        image_delta: image_delta,
         optional_header: pe.optional_header().clone(),
         basereloc_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize],
         import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
@@ -140,7 +231,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     loader_buf.write_bytes(&loader_fn_bytes);
 
     // Write loader buffer to loader memory
-    loader_mem.write(loader_buf.to_bytes().as_ptr(), loader_buf.len())?;
+    loader_mem.write_memory(&loader_buf.to_bytes(), 0)?;
 
     // Transmute the loader buffer into a function pointer
     let loader_mem_as_fn = unsafe {
@@ -259,9 +350,8 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
                 } else {
                     *first_thunk = proc;
 
-                    orig_first_thunk =
-                        (orig_first_thunk as usize + mem::size_of::<usize>()) as *const usize;
-                    first_thunk = (first_thunk as usize + mem::size_of::<usize>()) as *mut usize;
+                    orig_first_thunk = (orig_first_thunk as usize + PTR_SIZE) as *const usize;
+                    first_thunk = (first_thunk as usize + PTR_SIZE) as *mut usize;
                 }
             }
 

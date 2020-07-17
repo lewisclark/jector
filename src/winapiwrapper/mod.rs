@@ -1,6 +1,7 @@
 pub mod alloctype;
 pub mod error;
 pub mod freetype;
+pub mod handleowner;
 pub mod library;
 pub mod process;
 pub mod processaccess;

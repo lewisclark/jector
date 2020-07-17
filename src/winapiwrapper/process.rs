@@ -1,11 +1,14 @@
 use super::error::Error;
+use super::handleowner::HandleOwner;
 use super::processaccess::ProcessAccess;
 use super::snapshot::Snapshot;
 use super::snapshotflags::SnapshotFlags;
 use super::thread::Thread;
 use super::threadaccess::ThreadAccess;
 use std::ops::Drop;
+use winapi::ctypes::c_void;
 use winapi::um::handleapi::CloseHandle;
+use winapi::um::memoryapi::{ReadProcessMemory, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetProcessId, OpenProcess};
 use winapi::um::winnt::HANDLE;
 
@@ -66,20 +69,68 @@ impl Process {
 
         for thread_entry in snapshot.thread_entries() {
             if pid == thread_entry.th32OwnerProcessID {
-                return Ok(Some(unsafe {
-                    Thread::from_id(thread_entry.th32ThreadID, access, inherit_handle)?
-                }));
+                return Ok(Some(Thread::from_id(
+                    thread_entry.th32ThreadID,
+                    access,
+                    inherit_handle,
+                )?));
             }
         }
 
         Ok(None)
     }
 
-    pub fn handle(&self) -> Result<HANDLE, Error> {
-        if self.handle.is_null() {
-            Err(Error::new("Attempted to retrieve NULL handle".to_string()))
+    pub fn write_memory(&self, data: &[u8], address: usize) -> Result<usize, Error> {
+        if address == 0 {
+            return Err(Error::new("Address to write to is null".to_string()));
+        }
+
+        let (ret, num_bytes_written) = unsafe {
+            let mut num_bytes_written = 0;
+
+            let ret = WriteProcessMemory(
+                self.handle(),
+                address as *mut c_void,
+                data.as_ptr() as *const c_void,
+                data.len(),
+                &mut num_bytes_written,
+            );
+
+            (ret, num_bytes_written)
+        };
+
+        if ret == 0 {
+            Err(Error::new("WriteProcesMemory failed".to_string()))
         } else {
-            Ok(self.handle)
+            Ok(num_bytes_written)
+        }
+    }
+
+    pub fn read_memory(&self, buffer: &mut [u8], address: usize) -> Result<usize, Error> {
+        if address == 0 {
+            return Err(Error::new("Address to read from is null".to_string()));
+        } else if buffer.len() == 0 {
+            return Err(Error::new("Buffer length is zero".to_string()));
+        }
+
+        let (ret, num_bytes_read) = unsafe {
+            let mut num_bytes_read = 0;
+
+            let ret = ReadProcessMemory(
+                self.handle(),
+                address as *mut c_void,
+                buffer.as_ptr() as *mut c_void,
+                buffer.len(),
+                &mut num_bytes_read,
+            );
+
+            (ret, num_bytes_read)
+        };
+
+        if ret == 0 {
+            Err(Error::new("ReadProcessMemory failed".to_string()))
+        } else {
+            Ok(num_bytes_read)
         }
     }
 }
@@ -87,5 +138,15 @@ impl Process {
 impl Drop for Process {
     fn drop(&mut self) {
         self.close().unwrap();
+    }
+}
+
+impl HandleOwner for Process {
+    unsafe fn from_handle(handle: HANDLE) -> Self {
+        Self { handle }
+    }
+
+    fn handle(&self) -> HANDLE {
+        self.handle
     }
 }
