@@ -5,7 +5,6 @@ use super::handleowner::HandleOwner;
 use super::process::Process;
 use super::protectflag::ProtectFlag;
 use std::ops::Drop;
-use winapi::ctypes::c_void;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
 

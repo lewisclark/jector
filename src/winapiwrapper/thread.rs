@@ -21,15 +21,17 @@ use winapi::um::winnt::{HANDLE, NT_TIB, PVOID};
 
 pub type StartRoutine = unsafe extern "system" fn(*mut winapic_void) -> u32;
 type NtQueryInformationThreadFn =
-    extern "system" fn(HANDLE, THREAD_INFORMATION_CLASS, PVOID, ULONG, PULONG) -> NTSTATUS;
+    unsafe extern "system" fn(HANDLE, THREAD_INFORMATION_CLASS, PVOID, ULONG, PULONG) -> NTSTATUS;
 
 #[repr(C)]
+#[allow(non_snake_case)]
 pub struct CLIENT_ID {
     UniqueProcess: HANDLE,
     UniqueThread: HANDLE,
 }
 
 #[repr(C)]
+#[allow(non_snake_case)]
 pub struct THREAD_BASIC_INFORMATION {
     pub ExitStatus: NTSTATUS,
     pub TebBaseAddress: PVOID,
@@ -40,6 +42,7 @@ pub struct THREAD_BASIC_INFORMATION {
 }
 
 #[repr(C)]
+#[allow(non_snake_case)]
 pub struct TEB {
     // FIXME: Struct isn't filled out entirely
     pub Tib: NT_TIB,

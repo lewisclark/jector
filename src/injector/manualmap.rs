@@ -105,7 +105,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     );
 
     let tls_raw_data = tls_dir.raw_data()?;
-    tls_data_mem.write_memory(tls_raw_data, 0);
+    tls_data_mem.write_memory(tls_raw_data, 0)?;
 
     let thread = match process.main_thread(
         crate::winapiwrapper::threadaccess::ThreadAccess::THREAD_ALL_ACCESS,
@@ -118,9 +118,9 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     }?;
 
     // We must add image delta because AddressOfIndex relies on base relocation
-    let address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
-    let tls_index = 0;
-    let teb = thread.teb()?;
+    let _address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
+    let _tls_index = 0;
+    let _teb = thread.teb()?;
 
     // TODO for static TLS initialization
     // Actually compute TLS index

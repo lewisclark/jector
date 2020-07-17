@@ -8,7 +8,7 @@ use super::threadaccess::ThreadAccess;
 use std::ops::Drop;
 use winapi::ctypes::c_void;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::memoryapi::{WriteProcessMemory, ReadProcessMemory};
+use winapi::um::memoryapi::{ReadProcessMemory, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetProcessId, OpenProcess};
 use winapi::um::winnt::HANDLE;
 
@@ -69,9 +69,11 @@ impl Process {
 
         for thread_entry in snapshot.thread_entries() {
             if pid == thread_entry.th32OwnerProcessID {
-                return Ok(Some(unsafe {
-                    Thread::from_id(thread_entry.th32ThreadID, access, inherit_handle)?
-                }));
+                return Ok(Some(Thread::from_id(
+                    thread_entry.th32ThreadID,
+                    access,
+                    inherit_handle,
+                )?));
             }
         }
 
