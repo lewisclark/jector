@@ -120,21 +120,35 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     }?;
 
     // We must add image delta because AddressOfIndex relies on base relocation
-    let _address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
-    let _tls_index = 0;
-    let teb = thread.teb()?;
+    let address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
+    let tls_index: usize = 71;
 
-    let tls_ptr = {
+    // Write TLS index to tls directory AddressOfIndex
+    process.write_memory(&tls_index.to_ne_bytes(), address_of_index)?;
+
+    // Obtain the TLS pointer from TEB and then compute our TLS pointer based on index
+    let (tls_ptr, tls_index_ptr) = {
         let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
         process.read_memory(
             &mut buf,
-            teb as usize + offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset(),
+            thread.teb()? as usize + offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset(),
         )?;
 
-        usize::from_le_bytes(buf)
+        let tls_ptr = usize::from_ne_bytes(buf);
+        let tls_index_ptr = tls_ptr + (tls_index * PTR_SIZE);
+
+        (tls_ptr, tls_index_ptr)
     };
 
-    println!("tls_ptr -> {:x}", tls_ptr);
+    // Write our TLS memory chunk to the TLS pointer based on index
+    process.write_memory(&tls_data_mem.address().to_ne_bytes(), tls_index_ptr)?;
+
+    println!("AddressOfIndex -> {:x}", address_of_index);
+    println!("TLS array -> {:x}", tls_ptr);
+    println!(
+        "Injector thread TLS index -> {} which indexes to {:x}",
+        tls_index, tls_index_ptr
+    );
 
     // TODO for static TLS initialization
     // Actually compute TLS index
