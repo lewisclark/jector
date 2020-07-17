@@ -17,9 +17,10 @@ use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID};
 use winapi::um::winnt::{
-    DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
-    IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR,
-    IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, LPCSTR,
+    RtlAddFunctionTable, DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION,
+    IMAGE_DIRECTORY_ENTRY_BASERELOC, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_DIRECTORY_ENTRY_IMPORT,
+    IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64,
+    IMAGE_RUNTIME_FUNCTION_ENTRY, LPCSTR, PRUNTIME_FUNCTION,
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
@@ -58,8 +59,9 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         (image_mem.address() as usize).wrapping_sub(pe.optional_header().ImageBase as usize);
 
     println!(
-        "Allocated image buffer at {:x}",
-        image_mem.address() as usize
+        "Allocated image buffer at {:x} with size {:x}",
+        image_mem.address() as usize,
+        image_mem.size(),
     );
 
     image_mem.set_free_on_drop(false);
@@ -94,7 +96,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     let tls_raw_data_size =
         (tls_dir_image.EndAddressOfRawData - tls_dir_image.StartAddressOfRawData) as usize;
 
-    let tls_data_mem = VirtualMem::alloc(
+    let mut tls_data_mem = VirtualMem::alloc(
         &process,
         0,
         tls_raw_data_size,
@@ -102,14 +104,18 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         ProtectFlag::PAGE_READWRITE,
     )?;
 
+    tls_data_mem.set_free_on_drop(false);
+
     println!(
-        "Allocated TLS buffer at {:x}",
-        tls_data_mem.address() as usize
+        "Allocated TLS buffer at {:x} with size {:X}",
+        tls_data_mem.address() as usize,
+        tls_data_mem.size(),
     );
 
     let tls_raw_data = tls_dir.raw_data()?;
     tls_data_mem.write_memory(tls_raw_data, 0)?;
 
+    // TODO: Make ThreadAccess more unpermissive
     let thread = match process.main_thread(
         crate::winapiwrapper::threadaccess::ThreadAccess::THREAD_ALL_ACCESS,
         false,
@@ -191,6 +197,25 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     // Write image buffer to image memory
     image_mem.write_memory(&image_buf.to_bytes(), 0)?;
 
+    // Set up SEH for loader
+    let exception = pe.exception()?;
+
+    if !exception.check_sorted() {
+        return Err(Box::new(Error::new(
+            "Exception routines are not sorted".to_string(),
+        )));
+    }
+
+    let exception_data_directory = pe.data_directory()[IMAGE_DIRECTORY_ENTRY_EXCEPTION as usize];
+    let exception_fn_table = (exception_data_directory.VirtualAddress as usize
+        + image_mem.address()) as PRUNTIME_FUNCTION;
+    let exception_fn_count = exception.functions().count() as u32;
+
+    println!(
+        "Exception function table -> {:x} with length {}",
+        exception_fn_table as usize, exception_fn_count
+    );
+
     // Allocate loader memory
     let loader_mem = VirtualMem::alloc(
         &process,
@@ -201,8 +226,9 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     )?;
 
     println!(
-        "Allocated loader buffer at {:x}",
-        loader_mem.address() as usize
+        "Allocated loader buffer at {:x} with size {:x}",
+        loader_mem.address() as usize,
+        loader_mem.size(),
     );
 
     // Initialize loader buffer
@@ -218,6 +244,8 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         optional_header: *pe.optional_header(),
         basereloc_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize],
         import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
+        exception_fn_table,
+        exception_fn_count,
         load_library: unsafe {
             mem::transmute::<*const (), FnLoadLibraryA>(lib_kernel32.proc_address("LoadLibraryA")?)
         },
@@ -284,6 +312,8 @@ struct LoaderInfo {
     optional_header: pelite::pe64::image::IMAGE_OPTIONAL_HEADER,
     basereloc_directory: pelite::image::IMAGE_DATA_DIRECTORY,
     import_directory: pelite::image::IMAGE_DATA_DIRECTORY,
+    exception_fn_table: PRUNTIME_FUNCTION,
+    exception_fn_count: u32,
     load_library: FnLoadLibraryA,
     get_proc_address: FnGetProcAddress,
 }
@@ -369,6 +399,13 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
                 as *const IMAGE_IMPORT_DESCRIPTOR;
         }
     }
+
+    // Fix SEH
+    RtlAddFunctionTable(
+        loader_info.exception_fn_table,
+        loader_info.exception_fn_count,
+        loader_info.image_base as u64,
+    );
 
     if loader_info.optional_header.AddressOfEntryPoint != 0 {
         let entry_point_addr =
