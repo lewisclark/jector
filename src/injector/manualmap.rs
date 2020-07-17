@@ -105,8 +105,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         tls_data_mem.size(),
     );
 
-    let tls_raw_data = tls_dir.raw_data()?;
-    tls_data_mem.write_memory(tls_raw_data, 0)?;
+    tls_data_mem.write_memory(tls_dir.raw_data()?, 0)?;
 
     // TODO: Make ThreadAccess more unpermissive
     let thread = match process.main_thread(
@@ -122,7 +121,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     let teb = thread.teb()? as usize;
     let tlsp_offset = offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset();
 
-    // Obtain the TLS pointer from TEB and then compute our TLS pointer based on index
+    // Obtain the TLS pointer from TEB
     let mut tls_ptr = {
         let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
         process.read_memory(&mut buf, teb + tlsp_offset)?;
@@ -179,7 +178,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
 
     // We must add image delta because AddressOfIndex relies on base relocation
     let address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
-    // Write TLS index to tls directory AddressOfIndex
+    // Write TLS index to TLS directory AddressOfIndex
     process.write_memory(&tls_index.to_ne_bytes(), address_of_index)?;
 
     println!("AddressOfIndex -> {:x}", address_of_index);
