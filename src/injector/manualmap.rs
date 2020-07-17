@@ -214,8 +214,8 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     let lib_kernel32 = Library::load("kernel32.dll")?;
     let loader_info = LoaderInfo {
         image_base: image_mem.address() as usize,
-        image_delta: image_delta,
-        optional_header: pe.optional_header().clone(),
+        image_delta,
+        optional_header: *pe.optional_header(),
         basereloc_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize],
         import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
         load_library: unsafe {
@@ -289,7 +289,7 @@ struct LoaderInfo {
 }
 
 unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
-    let loader_info = mem::transmute::<*mut winapic_void, &LoaderInfo>(param);
+    let loader_info = &*(param as *const LoaderInfo);
 
     if loader_info.image_delta != 0 {
         let mut base_reloc = (loader_info.image_base
@@ -345,20 +345,14 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
                 % 9223372036854775807) as *mut usize;
 
             while *orig_first_thunk != 0 {
-                let proc;
-
-                if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 as usize {
-                    proc = (loader_info.get_proc_address)(
-                        module,
-                        (*orig_first_thunk & 0xffff) as LPCSTR,
-                    ) as usize;
+                let proc = if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 as usize {
+                    (loader_info.get_proc_address)(module, (*orig_first_thunk & 0xffff) as LPCSTR)
                 } else {
                     let import_by_name =
                         (loader_info.image_base + *orig_first_thunk) as *const IMAGE_IMPORT_BY_NAME;
 
-                    proc = (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
-                        as usize;
-                }
+                    (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
+                } as usize;
 
                 if proc == 0 {
                     return 20;

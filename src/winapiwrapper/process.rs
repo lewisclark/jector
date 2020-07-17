@@ -109,7 +109,7 @@ impl Process {
     pub fn read_memory(&self, buffer: &mut [u8], address: usize) -> Result<usize, Error> {
         if address == 0 {
             return Err(Error::new("Address to read from is null".to_string()));
-        } else if buffer.len() == 0 {
+        } else if buffer.is_empty() {
             return Err(Error::new("Buffer length is zero".to_string()));
         }
 

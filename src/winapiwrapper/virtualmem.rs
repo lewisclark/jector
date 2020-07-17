@@ -37,9 +37,9 @@ impl<'a> VirtualMem<'a> {
             Err(Error::new("VirtualAllocEx returned NULL".to_string()))
         } else {
             Ok(Self {
-                process: process,
+                process,
                 address: mem as usize,
-                size: size,
+                size,
                 free_on_drop: true,
             })
         }
