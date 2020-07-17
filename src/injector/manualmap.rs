@@ -29,6 +29,7 @@ const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
 type FnLoadLibraryA = unsafe extern "system" fn(LPCSTR) -> HMODULE;
 type FnGetProcAddress = unsafe extern "system" fn(HMODULE, LPCSTR) -> FARPROC;
+type FnRtlAddFunctionTable = unsafe extern "system" fn(PRUNTIME_FUNCTION, u32, u64) -> u8;
 
 pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::Error>> {
     let pe_size = pe.optional_header().SizeOfImage as usize;
@@ -238,6 +239,11 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
                 lib_kernel32.proc_address("GetProcAddress")?,
             )
         },
+        rtl_add_function_table: unsafe {
+            mem::transmute::<*const (), FnRtlAddFunctionTable>(
+                lib_kernel32.proc_address("RtlAddFunctionTable")?,
+            )
+        },
     };
 
     // Write LoaderInfo to loader buffer
@@ -297,6 +303,7 @@ struct LoaderInfo {
     exception_fn_count: u32,
     load_library: FnLoadLibraryA,
     get_proc_address: FnGetProcAddress,
+    rtl_add_function_table: FnRtlAddFunctionTable,
 }
 
 unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
@@ -382,7 +389,7 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     }
 
     // Fix SEH
-    RtlAddFunctionTable(
+    (loader_info.rtl_add_function_table)(
         loader_info.exception_fn_table,
         loader_info.exception_fn_count,
         loader_info.image_base as u64,
