@@ -4,10 +4,11 @@ use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
-use crate::winapiwrapper::thread::{self, Thread};
+use crate::winapiwrapper::thread::{self, Thread, TEB};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use bytebuffer::{ByteBuffer, Endian};
+use field_offset::offset_of;
 use pelite::pe64::{Pe, PeFile};
 use std::error;
 use std::ffi::c_void;
@@ -21,6 +22,7 @@ use winapi::um::winnt::{
     IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, LPCSTR,
 };
 
+const PTR_SIZE: usize = mem::size_of::<usize>();
 const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
@@ -120,12 +122,22 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     // We must add image delta because AddressOfIndex relies on base relocation
     let _address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
     let _tls_index = 0;
-    let _teb = thread.teb()?;
+    let teb = thread.teb()?;
+
+    let tls_ptr = {
+        let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
+        process.read_memory(
+            &mut buf,
+            teb as usize + offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset(),
+        )?;
+
+        usize::from_le_bytes(buf)
+    };
+
+    println!("tls_ptr -> {:x}", tls_ptr);
 
     // TODO for static TLS initialization
     // Actually compute TLS index
-    // Implement a WriteProcessMemory wrapper for Process (needs refactoring with VirtualMem
-    // (trait?))
     // Read teb.ThreadLocalStoragePointer if == 0 then allocate (size = ????)
     // write tls_data_mem ptr to teb.ThreadLocalStoragePointer[my tls index]
 
@@ -306,9 +318,8 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
                 } else {
                     *first_thunk = proc;
 
-                    orig_first_thunk =
-                        (orig_first_thunk as usize + mem::size_of::<usize>()) as *const usize;
-                    first_thunk = (first_thunk as usize + mem::size_of::<usize>()) as *mut usize;
+                    orig_first_thunk = (orig_first_thunk as usize + PTR_SIZE) as *const usize;
+                    first_thunk = (first_thunk as usize + PTR_SIZE) as *mut usize;
                 }
             }
 
