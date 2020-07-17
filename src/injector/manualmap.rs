@@ -72,15 +72,17 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     // Write image sections
     for section in pe.section_headers() {
         let start = section.PointerToRawData as usize;
-        let size = section.SizeOfRawData as usize;
+        let end = start.wrapping_add(section.SizeOfRawData as usize);
 
-        image_mem.write_memory(&image[start..start + size], section.VirtualAddress as usize)?;
+        image_mem.write_memory(&image[start..end], section.VirtualAddress as usize)?;
 
         println!(
-            "Section {} written at {:x} with size {:x}",
+            "Section {} -> {:x} with size {:x}",
             section.Name.to_str()?,
-            image_mem.address() as usize + start,
-            size
+            image_mem
+                .address()
+                .wrapping_add(section.VirtualAddress as usize),
+            section.VirtualSize,
         );
     }
 
