@@ -93,6 +93,16 @@ impl<'a> VirtualMem<'a> {
     pub fn read_memory(&self, data: &mut [u8], offset: usize) -> Result<usize, Error> {
         self.process.read_memory(data, self.address + offset)
     }
+
+    pub fn virtual_protect(
+        &self,
+        offset: usize,
+        size: usize,
+        protect: ProtectFlag,
+    ) -> Result<u32, Error> {
+        self.process
+            .virtual_protect(self.address + offset, size, protect)
+    }
 }
 
 impl Drop for VirtualMem<'_> {

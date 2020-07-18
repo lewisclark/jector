@@ -1,14 +1,16 @@
 use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::processaccess::ProcessAccess;
+use super::protectflag::ProtectFlag;
 use super::snapshot::Snapshot;
 use super::snapshotflags::SnapshotFlags;
 use super::thread::Thread;
 use super::threadaccess::ThreadAccess;
 use std::ops::Drop;
 use winapi::ctypes::c_void;
+use winapi::shared::minwindef::LPVOID;
 use winapi::um::handleapi::CloseHandle;
-use winapi::um::memoryapi::{ReadProcessMemory, WriteProcessMemory};
+use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetProcessId, OpenProcess};
 use winapi::um::winnt::HANDLE;
 
@@ -124,6 +126,34 @@ impl Process {
             Err(Error::new("ReadProcessMemory failed".to_string()))
         } else {
             Ok(num_bytes_read)
+        }
+    }
+
+    pub fn virtual_protect(
+        &self,
+        address: usize,
+        size: usize,
+        protect: ProtectFlag,
+    ) -> Result<u32, Error> {
+        let (ret, old_protect) = unsafe {
+            let mut old_protect = 0;
+
+            (
+                VirtualProtectEx(
+                    self.handle,
+                    address as LPVOID,
+                    size,
+                    protect.bits(),
+                    &mut old_protect,
+                ),
+                old_protect,
+            )
+        };
+
+        if ret != 0 {
+            Ok(old_protect)
+        } else {
+            Err(Error::new("VirtualProtectEx returned NULL".to_string()))
         }
     }
 }
