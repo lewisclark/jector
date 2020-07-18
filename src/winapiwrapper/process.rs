@@ -27,19 +27,12 @@ impl Process {
         }
     }
 
-    pub fn close(&mut self) -> Result<(), Error> {
-        if self.handle.is_null() {
-            return Err(Error::new(
-                "Null handle passed to Process::close".to_string(),
-            ));
-        }
-
+    pub fn close(&self) -> Result<(), Error> {
         let ret = unsafe { CloseHandle(self.handle) };
 
         if ret == 0 {
             Err(Error::new("CloseHandle failed".to_string()))
         } else {
-            self.handle = 0 as HANDLE;
             Ok(())
         }
     }
@@ -100,7 +93,7 @@ impl Process {
         };
 
         if ret == 0 {
-            Err(Error::new("WriteProcesMemory failed".to_string()))
+            Err(Error::new("WriteProcessMemory failed".to_string()))
         } else {
             Ok(num_bytes_written)
         }

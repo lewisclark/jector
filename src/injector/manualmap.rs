@@ -16,10 +16,9 @@ use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID};
 use winapi::um::winnt::{
-    DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION,
-    IMAGE_DIRECTORY_ENTRY_BASERELOC, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_DIRECTORY_ENTRY_IMPORT,
-    IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64,
-    LPCSTR, PRUNTIME_FUNCTION,
+    DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
+    IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_IMPORT_BY_NAME,
+    IMAGE_IMPORT_DESCRIPTOR, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, LPCSTR, PRUNTIME_FUNCTION,
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
@@ -324,10 +323,9 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
             while entry_index < entries_len {
                 let reloc_type = *entry >> 12;
                 if reloc_type == IMAGE_REL_BASED_DIR64 {
-                    let reloc_offset = (*base_reloc).VirtualAddress as usize
-                        + (*entry as usize & 0xfff);
-                    let reloc_location = (loader_info.image_base + reloc_offset)
-                        as *mut usize;
+                    let reloc_offset =
+                        (*base_reloc).VirtualAddress as usize + (*entry as usize & 0xfff);
+                    let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
 
                     *reloc_location += loader_info.image_delta;
                 }
@@ -355,10 +353,10 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
             }
 
             let mut orig_first_thunk = (loader_info.image_base
-                + *(import_descriptor as *const u32) as usize) as *const usize;
-            let mut first_thunk = (loader_info.image_base
-                + (*import_descriptor).FirstThunk as usize)
-                as *mut usize;
+                + *(import_descriptor as *const u32) as usize)
+                as *const usize;
+            let mut first_thunk =
+                (loader_info.image_base + (*import_descriptor).FirstThunk as usize) as *mut usize;
 
             while *orig_first_thunk != 0 {
                 let proc = if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 as usize {
