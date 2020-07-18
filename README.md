@@ -27,6 +27,7 @@ Jector allocates a buffer inside the target process and loads the chosen dynamic
 - [ ] Initialize security cookie
 - [x] Initialize static TLS
 - [ ] Fix TLS callbacks
+- [ ] Handle other base relocation types
 ### Non-essential
 - [ ] Logging
 - [ ] Support injecting 32-bit libraries into 32-bit processes
