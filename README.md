@@ -33,5 +33,5 @@ Jector allocates a buffer inside the target process and loads the chosen dynamic
 - [ ] Support injecting 32-bit libraries into 32-bit processes
 - [ ] Disallow the same library from being loaded more than once
 - [ ] Erase PE header
-- [ ] Do base relocation outside of the loader routine
+- [x] Do base relocation outside of the loader routine
 - [ ] Resolve imports outside of the loader routine

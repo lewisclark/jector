@@ -16,15 +16,13 @@ use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID};
 use winapi::um::winnt::{
-    DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
-    IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_IMPORT_BY_NAME,
-    IMAGE_IMPORT_DESCRIPTOR, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, IMAGE_SCN_MEM_EXECUTE,
-    IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, LPCSTR, PRUNTIME_FUNCTION,
+    DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_DIRECTORY_ENTRY_IMPORT,
+    IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64,
+    IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, LPCSTR, PRUNTIME_FUNCTION,
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
 const MAX_TLS_INDEX: usize = 1088;
-const BASE_RELOCATION_SIZE: usize = mem::size_of::<IMAGE_BASE_RELOCATION>();
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
 type FnLoadLibraryA = unsafe extern "system" fn(LPCSTR) -> HMODULE;
@@ -84,6 +82,23 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
                 .wrapping_add(section.VirtualAddress as usize),
             section.VirtualSize,
         );
+    }
+
+    // Do base relocation
+    for block in pe.base_relocs()?.iter_blocks() {
+        for word in block.words() {
+            let typ = block.type_of(word) as u16;
+
+            if typ == IMAGE_REL_BASED_DIR64 {
+                let rva = block.rva_of(word);
+
+                let mut buf = [0_u8; mem::size_of::<usize>()];
+                image_mem.read_memory(&mut buf, rva as usize)?;
+
+                let block = image_delta + usize::from_ne_bytes(buf);
+                image_mem.write_memory(&block.to_ne_bytes(), rva as usize)?;
+            }
+        }
     }
 
     // Initialize static TLS
@@ -266,7 +281,6 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         image_base: image_mem.address() as usize,
         image_delta,
         optional_header: *pe.optional_header(),
-        basereloc_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_BASERELOC as usize],
         import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
         exception_fn_table,
         exception_fn_count,
@@ -336,7 +350,6 @@ struct LoaderInfo {
     image_base: usize,
     image_delta: usize,
     optional_header: pelite::pe64::image::IMAGE_OPTIONAL_HEADER,
-    basereloc_directory: pelite::image::IMAGE_DATA_DIRECTORY,
     import_directory: pelite::image::IMAGE_DATA_DIRECTORY,
     exception_fn_table: PRUNTIME_FUNCTION,
     exception_fn_count: u32,
@@ -347,34 +360,6 @@ struct LoaderInfo {
 
 unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     let loader_info = &*(param as *const LoaderInfo);
-
-    if loader_info.image_delta != 0 {
-        let mut base_reloc = (loader_info.image_base
-            + loader_info.basereloc_directory.VirtualAddress as usize)
-            as *const IMAGE_BASE_RELOCATION;
-
-        while (*base_reloc).VirtualAddress != 0 {
-            let block_size = (*base_reloc).SizeOfBlock as usize;
-            let entries_len = (block_size - BASE_RELOCATION_SIZE) / mem::size_of::<u16>();
-            let mut entry_index = 0;
-            let mut entry = (base_reloc as usize + BASE_RELOCATION_SIZE) as *const u16;
-            while entry_index < entries_len {
-                let reloc_type = *entry >> 12;
-                if reloc_type == IMAGE_REL_BASED_DIR64 {
-                    let reloc_offset =
-                        (*base_reloc).VirtualAddress as usize + (*entry as usize & 0xfff);
-                    let reloc_location = (loader_info.image_base + reloc_offset) as *mut usize;
-
-                    *reloc_location += loader_info.image_delta;
-                }
-
-                entry_index += 1;
-                entry = (entry as usize + mem::size_of::<u16>()) as *const u16;
-            }
-
-            base_reloc = (base_reloc as usize + block_size) as *const IMAGE_BASE_RELOCATION;
-        }
-    }
 
     {
         let mut import_descriptor = (loader_info.image_base
