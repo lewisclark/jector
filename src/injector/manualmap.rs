@@ -18,7 +18,8 @@ use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_BASE_RELOCATION, IMAGE_DIRECTORY_ENTRY_BASERELOC,
     IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_DIRECTORY_ENTRY_IMPORT, IMAGE_IMPORT_BY_NAME,
-    IMAGE_IMPORT_DESCRIPTOR, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, LPCSTR, PRUNTIME_FUNCTION,
+    IMAGE_IMPORT_DESCRIPTOR, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64, IMAGE_SCN_MEM_EXECUTE,
+    IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, LPCSTR, PRUNTIME_FUNCTION,
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
@@ -206,6 +207,43 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
         "Exception function table -> {:x} with length {}",
         exception_fn_table as usize, exception_fn_count
     );
+
+    // Set proper memory protection for image sections
+    for sh in pe.section_headers() {
+        let ch = sh.Characteristics;
+        let read = ch & IMAGE_SCN_MEM_READ != 0;
+        let write = ch & IMAGE_SCN_MEM_WRITE != 0;
+        let exec = ch & IMAGE_SCN_MEM_EXECUTE != 0;
+
+        let protect = if read && write && exec {
+            ProtectFlag::PAGE_EXECUTE_READWRITE
+        } else if read && exec {
+            ProtectFlag::PAGE_EXECUTE_READ
+        } else if read && write {
+            ProtectFlag::PAGE_READWRITE
+        } else if read {
+            //ProtectFlag::PAGE_READONLY
+            // Temporary hack because imports get fixed later in the loader which requires write access
+            ProtectFlag::PAGE_READWRITE
+        } else if exec {
+            ProtectFlag::PAGE_EXECUTE
+        } else {
+            ProtectFlag::PAGE_NOACCESS
+        };
+
+        let old_protect = image_mem.virtual_protect(
+            sh.VirtualAddress as usize,
+            sh.VirtualSize as usize,
+            protect,
+        )?;
+
+        println!(
+            "Set memory protection for {} to {:?} (was {:?})",
+            sh.Name,
+            protect,
+            ProtectFlag::from_bits_truncate(old_protect)
+        );
+    }
 
     // Allocate loader memory
     let loader_mem = VirtualMem::alloc(

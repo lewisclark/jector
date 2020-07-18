@@ -22,7 +22,7 @@ Jector allocates a buffer inside the target process and loads the chosen dynamic
 - [x] Perform base relocation if necessary
 - [x] Resolve imports
 - [ ] Resolve delayed imports
-- [ ] Apply the correct memory protection to injected library sections
+- [x] Apply the correct memory protection to injected library sections
 - [x] Fix exception handling
 - [ ] Initialize security cookie
 - [x] Initialize static TLS
