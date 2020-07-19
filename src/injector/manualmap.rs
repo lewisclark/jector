@@ -361,53 +361,8 @@ struct LoaderInfo {
 unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     let loader_info = &*(param as *const LoaderInfo);
 
-    {
-        let mut import_descriptor = (loader_info.image_base
-            + loader_info.import_directory.VirtualAddress as usize)
-            as *const IMAGE_IMPORT_DESCRIPTOR;
-
-        while (*import_descriptor).Name != 0 {
-            let module = (loader_info.load_library)(
-                (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
-            );
-
-            if module as usize == 0 {
-                return 10;
-            }
-
-            let mut orig_first_thunk = (loader_info.image_base
-                + *(import_descriptor as *const u32) as usize)
-                as *const usize;
-            let mut first_thunk =
-                (loader_info.image_base + (*import_descriptor).FirstThunk as usize) as *mut usize;
-
-            while *orig_first_thunk != 0 {
-                let proc = if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 as usize {
-                    (loader_info.get_proc_address)(module, (*orig_first_thunk & 0xffff) as LPCSTR)
-                } else {
-                    let import_by_name =
-                        (loader_info.image_base + *orig_first_thunk) as *const IMAGE_IMPORT_BY_NAME;
-
-                    (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
-                } as usize;
-
-                if proc == 0 {
-                    return 20;
-                } else {
-                    *first_thunk = proc;
-
-                    orig_first_thunk = (orig_first_thunk as usize + PTR_SIZE) as *const usize;
-                    first_thunk = (first_thunk as usize + PTR_SIZE) as *mut usize;
-                }
-            }
-
-            import_descriptor = (import_descriptor as usize
-                + mem::size_of::<IMAGE_IMPORT_DESCRIPTOR>())
-                as *const IMAGE_IMPORT_DESCRIPTOR;
-        }
-    }
-
     // Fix SEH
+    // TODO: Check ret value
     (loader_info.rtl_add_function_table)(
         loader_info.exception_fn_table,
         loader_info.exception_fn_count,
