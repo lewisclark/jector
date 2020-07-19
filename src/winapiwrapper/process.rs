@@ -11,7 +11,7 @@ use winapi::ctypes::c_void;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
-use winapi::um::processthreadsapi::{GetProcessId, OpenProcess, GetCurrentProcess};
+use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
