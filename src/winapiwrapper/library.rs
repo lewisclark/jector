@@ -4,6 +4,8 @@ use std::ffi::CString;
 use winapi::shared::minwindef::HMODULE;
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
 
+// TODO: Rename to Module
+
 pub struct Library {
     handle: HMODULE,
     is_external: bool,
@@ -30,6 +32,10 @@ impl Library {
                 is_external: false,
             })
         }
+    }
+
+    pub unsafe fn from_handle(handle: HMODULE, is_external: bool) -> Self {
+        Self { handle, is_external }
     }
 
     pub fn get_externally(process: &Process, name: &str) -> Result<Self, Error> {
