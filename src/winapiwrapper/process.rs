@@ -11,12 +11,14 @@ use winapi::ctypes::c_void;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
-use winapi::um::processthreadsapi::{GetProcessId, OpenProcess};
+use winapi::um::processthreadsapi::{GetProcessId, OpenProcess, GetCurrentProcess};
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
     handle: HANDLE,
 }
+
+// TODO: Close handle on drop if opened by OpenProcess
 
 impl Process {
     pub fn from_pid(pid: u32, access: ProcessAccess, inherit: bool) -> Result<Self, Error> {
@@ -27,6 +29,10 @@ impl Process {
         } else {
             Ok(Self { handle })
         }
+    }
+
+    pub fn from_current() -> Self {
+        unsafe { Process::from_handle(GetCurrentProcess()) }
     }
 
     pub fn close(&self) -> Result<(), Error> {
