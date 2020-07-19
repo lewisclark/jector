@@ -1,21 +1,14 @@
-#[macro_use]
-extern crate bitflags;
-
 use std::env;
 use std::fs::File;
 use std::io::Read;
 
 mod error;
-mod injector;
-mod winapiwrapper;
-
-use error::Error;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 3 {
-        return Err(Box::new(Error::new(format!(
+        return Err(Box::new(error::Error::new(format!(
             "{} <pid> <dll path>",
             args[0]
         ))));
