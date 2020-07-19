@@ -2,7 +2,8 @@ use super::error::Error;
 use super::process::Process;
 use std::ffi::CString;
 use winapi::shared::minwindef::HMODULE;
-use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
+use winapi::shared::ntdef::HANDLE;
+use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA, LoadLibraryExA};
 
 // TODO: Rename to Module
 
@@ -12,7 +13,7 @@ pub struct Library {
 }
 
 impl Library {
-    pub fn load(name: &str) -> Result<Self, Error> {
+    pub fn load_internal(name: &str) -> Result<Self, Error> {
         let name = match CString::new(name) {
             Ok(cstr) => Ok(cstr),
             Err(e) => Err(Error::new(format!(
@@ -34,8 +35,33 @@ impl Library {
         }
     }
 
+    pub fn load_external(process: &Process, name: &str) -> Result<Self, Error> {
+        let name = match CString::new(name) {
+            Ok(cstr) => Ok(cstr),
+            Err(e) => Err(Error::new(format!(
+                "Failed to construct CString from name arg ({})",
+                e
+            ))),
+        }?
+        .into_raw();
+
+        let handle = unsafe { LoadLibraryExA(name, 0 as HANDLE, 0) };
+
+        if handle.is_null() {
+            Err(Error::new("LoadLibraryExA returned NULL".to_string()))
+        } else {
+            Ok(Self {
+                handle,
+                is_external: true,
+            })
+        }
+    }
+
     pub unsafe fn from_handle(handle: HMODULE, is_external: bool) -> Self {
-        Self { handle, is_external }
+        Self {
+            handle,
+            is_external,
+        }
     }
 
     pub fn get_externally(process: &Process, name: &str) -> Result<Self, Error> {
