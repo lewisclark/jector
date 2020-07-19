@@ -35,7 +35,9 @@ impl Library {
     }
 
     pub fn load_external(_process: &Process, _name: &str) -> Result<Self, Error> {
-        Err(Error::new("Not implemented".to_string()))
+        Err(Error::new(
+            "Library::load_external not implemented".to_string(),
+        ))
     }
 
     pub unsafe fn from_handle(handle: HMODULE, is_external: bool) -> Self {
@@ -72,6 +74,8 @@ impl Library {
     }
 
     fn proc_address_external(&self, _proc_name: &str) -> Result<*const (), Error> {
-        Err(Error::new("Not implemented".to_string()))
+        Err(Error::new(
+            "Library::proc_address_external not implemented".to_string(),
+        ))
     }
 }
