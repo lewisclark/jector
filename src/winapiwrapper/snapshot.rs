@@ -33,8 +33,8 @@ impl Snapshot {
         SnapshotThreadEntries::new(self)
     }
 
-    pub fn module_entries(self) -> SnapshotModuleEntries {
-        SnapshotModuleEntries::new(self)
+    pub fn module_entries(self, pid: u32) -> SnapshotModuleEntries {
+        SnapshotModuleEntries::new(self, pid)
     }
 }
 
@@ -95,13 +95,15 @@ impl Iterator for SnapshotThreadEntries {
 // SnapshotModuleEntries
 pub struct SnapshotModuleEntries {
     snapshot: Snapshot,
+    pid: u32,
     is_first: bool,
 }
 
 impl SnapshotModuleEntries {
-    pub fn new(snapshot: Snapshot) -> Self {
+    pub fn new(snapshot: Snapshot, pid: u32) -> Self {
         Self {
             snapshot,
+            pid,
             is_first: true,
         }
     }
@@ -114,7 +116,7 @@ impl Iterator for SnapshotModuleEntries {
         let mut entry = MODULEENTRY32 {
             dwSize: size_of::<MODULEENTRY32>() as u32,
             th32ModuleID: 0,
-            th32ProcessID: 0,
+            th32ProcessID: self.pid,
             GlblcntUsage: 0,
             ProccntUsage: 0,
             modBaseAddr: 0 as *mut BYTE,
