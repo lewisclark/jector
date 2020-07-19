@@ -2,8 +2,7 @@ use super::error::Error;
 use super::process::Process;
 use std::ffi::CString;
 use winapi::shared::minwindef::HMODULE;
-use winapi::shared::ntdef::HANDLE;
-use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA, LoadLibraryExA};
+use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
 
 // TODO: Rename to Module
 
@@ -35,26 +34,8 @@ impl Library {
         }
     }
 
-    pub fn load_external(process: &Process, name: &str) -> Result<Self, Error> {
-        let name = match CString::new(name) {
-            Ok(cstr) => Ok(cstr),
-            Err(e) => Err(Error::new(format!(
-                "Failed to construct CString from name arg ({})",
-                e
-            ))),
-        }?
-        .into_raw();
-
-        let handle = unsafe { LoadLibraryExA(name, 0 as HANDLE, 0) };
-
-        if handle.is_null() {
-            Err(Error::new("LoadLibraryExA returned NULL".to_string()))
-        } else {
-            Ok(Self {
-                handle,
-                is_external: true,
-            })
-        }
+    pub fn load_external(_process: &Process, _name: &str) -> Result<Self, Error> {
+        Err(Error::new("Not implemented".to_string()))
     }
 
     pub unsafe fn from_handle(handle: HMODULE, is_external: bool) -> Self {
@@ -62,10 +43,6 @@ impl Library {
             handle,
             is_external,
         }
-    }
-
-    pub fn get_externally(process: &Process, name: &str) -> Result<Self, Error> {
-        Err(Error::new("Not implemented".to_string()))
     }
 
     pub fn proc_address(&self, proc_name: &str) -> Result<*const (), Error> {
@@ -94,7 +71,7 @@ impl Library {
         }
     }
 
-    fn proc_address_external(&self, proc_name: &str) -> Result<*const (), Error> {
+    fn proc_address_external(&self, _proc_name: &str) -> Result<*const (), Error> {
         Err(Error::new("Not implemented".to_string()))
     }
 }

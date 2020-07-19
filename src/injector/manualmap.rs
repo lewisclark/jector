@@ -12,7 +12,7 @@ use field_offset::offset_of;
 use pelite::pe64::imports::Import::{ByName, ByOrdinal};
 use pelite::pe64::{Pe, PeFile};
 use std::error;
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::{c_void, CStr};
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
@@ -118,7 +118,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
                 == module_name
         });
 
-        let module = match module_entry {
+        let _module = match module_entry {
             Some(entry) => unsafe { Library::from_handle(entry.hModule, true) },
             None => Library::load_external(&process, &module_name)?,
             // TODO: Manually map instead of using load_external (LoadLibraryExA)
@@ -126,7 +126,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
 
         for (va, import) in descriptor.iat()?.zip(descriptor.int()?) {
             match import? {
-                ByName { hint, name } => println!("import (name) va -> {:x}, proc -> {}", va, name),
+                ByName { hint: _, name } => println!("import (name) va -> {:x}, proc -> {}", va, name),
                 ByOrdinal { ord } => println!("import (ordinal) va -> {:x}, proc -> {}", va, ord),
             };
         }
