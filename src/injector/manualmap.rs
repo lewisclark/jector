@@ -118,17 +118,21 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
                 == module_name
         });
 
-        let _module = match module_entry {
+        let module = match module_entry {
             Some(entry) => unsafe { Library::from_handle(entry.hModule, true) },
             None => Library::load_external(&process, &module_name)?,
             // TODO: Manually map instead of using load_external (LoadLibraryExA)
         };
 
-        for (va, import) in descriptor.iat()?.zip(descriptor.int()?) {
-            match import? {
-                ByName { hint: _, name } => println!("import (name) va -> {:x}, proc -> {}", va, name),
-                ByOrdinal { ord } => println!("import (ordinal) va -> {:x}, proc -> {}", va, ord),
-            };
+        for (&va, import) in descriptor.iat()?.zip(descriptor.int()?) {
+            let import_address = match import? {
+                ByName { hint: _, name } => Ok(module.proc_address(name.to_str()?)? as usize),
+                ByOrdinal { ord: _ } => Err(Error::new(
+                    "Ordinal import resolution not implemented".to_string(),
+                )),
+            }?;
+
+            image_mem.write_memory(&import_address.to_ne_bytes(), va as usize)?;
         }
     }
 
