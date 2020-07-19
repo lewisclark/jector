@@ -4,17 +4,20 @@ use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
+use crate::winapiwrapper::snapshotflags::SnapshotFlags;
 use crate::winapiwrapper::thread::{self, Thread, TEB};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use field_offset::offset_of;
+use pelite::pe64::imports::Import::{ByName, ByOrdinal};
 use pelite::pe64::{Pe, PeFile};
 use std::error;
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr, CString};
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
+use winapi::um::tlhelp32::MODULEENTRY32;
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_DIR64,
     IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
@@ -95,6 +98,37 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
                 let block = image_delta + usize::from_ne_bytes(buf);
                 image_mem.write_memory(&block.to_ne_bytes(), rva as usize)?;
             }
+        }
+    }
+
+    // Resolve imports
+    let module_entries: Vec<MODULEENTRY32> = process
+        .snapshot(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32)?
+        .module_entries(pid)
+        .collect();
+
+    for descriptor in pe.imports()? {
+        let module_name = descriptor.dll_name()?.to_str()?.to_ascii_lowercase();
+
+        let module_entry = module_entries.iter().find(|entry| {
+            (unsafe { CStr::from_ptr(entry.szModule.as_ptr()) })
+                .to_str()
+                .unwrap() // FIXME: Unwrap usage
+                .to_ascii_lowercase()
+                == module_name
+        });
+
+        let module = match module_entry {
+            Some(entry) => unsafe { Library::from_handle(entry.hModule, true) },
+            None => Library::load_external(&process, &module_name)?,
+            // TODO: Manually map instead of using load_external (LoadLibraryExA)
+        };
+
+        for (va, import) in descriptor.iat()?.zip(descriptor.int()?) {
+            match import? {
+                ByName { hint, name } => println!("import (name) va -> {:x}, proc -> {}", va, name),
+                ByOrdinal { ord } => println!("import (ordinal) va -> {:x}, proc -> {}", va, ord),
+            };
         }
     }
 
@@ -273,7 +307,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::E
     );
 
     // Construct LoaderInfo
-    let lib_kernel32 = Library::load("kernel32.dll")?;
+    let lib_kernel32 = Library::load_internal("kernel32.dll")?;
     let loader_info = LoaderInfo {
         image_base: image_mem.address() as usize,
         optional_header: *pe.optional_header(),
