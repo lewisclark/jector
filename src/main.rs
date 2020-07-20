@@ -19,6 +19,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         File::open(&args[2])?.read_to_end(&mut dll_bytes)?;
         let method = args[3].parse()?;
 
-        jector::inject_pid(pid, &dll_bytes, method)
+        jector::inject_pid(pid, &dll_bytes, method)?;
+
+        println!("Injected!");
     }
 }
