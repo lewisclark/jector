@@ -242,9 +242,7 @@ impl Injector for ManualMapInjector {
             } else if read && write {
                 ProtectFlag::PAGE_READWRITE
             } else if read {
-                //ProtectFlag::PAGE_READONLY
-                // Temporary hack because imports get fixed later in the loader which requires write access
-                ProtectFlag::PAGE_READWRITE
+                ProtectFlag::PAGE_READONLY
             } else if exec {
                 ProtectFlag::PAGE_EXECUTE
             } else {
@@ -281,7 +279,7 @@ impl Injector for ManualMapInjector {
         );
 
         // Construct LoaderInfo
-        let lib_kernel32 = Library::load("kernel32.dll")?;
+        let lib_kernel32 = Library::load_internal("kernel32.dll")?;
         let loader_info = LoaderInfo {
             image_base: image_mem.address() as usize,
             image_delta,

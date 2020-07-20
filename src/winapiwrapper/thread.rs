@@ -134,7 +134,7 @@ impl Thread {
     pub fn query_information(&self) -> Result<THREAD_BASIC_INFORMATION, Error> {
         let nt_query_information_thread = unsafe {
             transmute::<*const (), NtQueryInformationThreadFn>(
-                Library::load("ntdll.dll")?.proc_address("NtQueryInformationThread")?,
+                Library::load_internal("ntdll.dll")?.proc_address("NtQueryInformationThread")?,
             )
         };
 
