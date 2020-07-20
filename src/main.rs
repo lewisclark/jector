@@ -4,6 +4,8 @@ use std::io::Read;
 
 mod error;
 
+use jector::InjectionMethod;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
 
@@ -18,5 +20,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut dll_bytes = Vec::new();
     File::open(&args[2])?.read_to_end(&mut dll_bytes)?;
 
-    jector::inject_pid(pid, &dll_bytes)
+    jector::inject_pid(pid, &dll_bytes, InjectionMethod::ManualMap)
+    // TODO: Allow InjectionMethod to be chosen via CLI
 }
