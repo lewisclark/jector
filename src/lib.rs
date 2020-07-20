@@ -9,7 +9,8 @@ mod injector;
 mod winapiwrapper;
 
 use error::Error;
-use injector::manualmap;
+use injector::injector::Injector;
+use injector::manualmap::ManualMapInjector;
 
 pub fn inject_pid(pid: u32, dll: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
     let pe = PeFile::from_bytes(dll)?;
@@ -17,5 +18,5 @@ pub fn inject_pid(pid: u32, dll: &[u8]) -> Result<(), Box<dyn std::error::Error>
         return Err(Box::new(Error::new("Expected library PE file".to_string())));
     }
 
-    manualmap::inject(pid, pe, dll)
+    ManualMapInjector::inject(pid, pe, dll)
 }
