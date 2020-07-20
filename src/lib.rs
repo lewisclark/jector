@@ -5,11 +5,11 @@ use pelite::pe64::{Pe, PeFile};
 use winapi::um::winnt::IMAGE_FILE_DLL;
 
 mod error;
-mod injector;
+mod injection;
 mod winapiwrapper;
 
 use error::Error;
-pub use injector::injectionmethod::InjectionMethod;
+pub use injection::injectionmethod::InjectionMethod;
 
 pub fn inject_pid(
     pid: u32,
@@ -21,5 +21,5 @@ pub fn inject_pid(
         return Err(Box::new(Error::new("Expected library PE file".to_string())));
     }
 
-    injector::inject(pid, pe, dll, method)
+    injection::inject(pid, pe, dll, method)
 }
