@@ -22,15 +22,19 @@ pub struct LoadLibraryInjector {}
 impl Injector for LoadLibraryInjector {
     fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
         // Determine file path for library
-        let mut file_path = env::temp_dir();
-        file_path.push("image.dll"); // TODO: Randomize file name
-        let file_path = file_path.as_path();
         // TODO: Ensure file_path length does not exceed (MAX_PATH - 1) nul byte
+        // TODO: Randomize image file name
+        let mut file_path = env::temp_dir();
+        file_path.push("image.dll");
+        let file_path = file_path.as_path();
 
         // Write the file to disk so that LoadLibraryA can use it
-        let mut file = File::create(file_path)?;
-        file.write_all(image)?;
-        file.sync_data()?;
+        {
+            // Enclosed in braces so the lock on this file is freed for LoadLibrary to acquire
+            let mut file = File::create(file_path)?;
+            file.write_all(image)?;
+            file.sync_data()?;
+        }
 
         // Open a handle to the target process
         let process = Process::from_pid(
@@ -61,7 +65,7 @@ impl Injector for LoadLibraryInjector {
 
         // Obtain the address of LoadLibrary
         // TODO: Use Library::load_external when it is stable with proc_address_external
-        let libkernel32 = Library::load("kernel32.dll")?;
+        let libkernel32 = Library::load_internal("kernel32.dll")?;
         let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
         // Transmute loadlibrary into the start routine signature
