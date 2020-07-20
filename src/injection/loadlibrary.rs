@@ -20,7 +20,7 @@ use winapi::shared::minwindef::MAX_PATH;
 pub struct LoadLibraryInjector {}
 
 impl Injector for LoadLibraryInjector {
-    fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
         // Determine file path for library
         let mut file_path = env::temp_dir();
         file_path.push("image.dll"); // TODO: Randomize file name
@@ -88,7 +88,7 @@ impl Injector for LoadLibraryInjector {
         let loadlibrary_ret = thr.exit_code()?;
 
         if loadlibrary_ret != 0 {
-            Ok(())
+            Ok(loadlibrary_ret as usize)
         } else {
             Err(Box::new(Error::new(
                 "LoadLibrary injection returned NULL".to_string(),

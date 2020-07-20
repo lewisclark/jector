@@ -33,7 +33,7 @@ type FnRtlAddFunctionTable = unsafe extern "system" fn(PRUNTIME_FUNCTION, u32, u
 pub struct ManualMapInjector {}
 
 impl Injector for ManualMapInjector {
-    fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<(), Box<dyn error::Error>> {
+    fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn error::Error>> {
         let pe_size = pe.optional_header().SizeOfImage as usize;
 
         // Obtain target process handle
@@ -349,7 +349,7 @@ impl Injector for ManualMapInjector {
         let code = thread.exit_code()?;
         println!("Remote thread exit code: {}", code);
 
-        Ok(())
+        Ok(image_mem.address())
     }
 }
 

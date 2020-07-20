@@ -12,7 +12,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         println!("{}", help);
-        Ok(())
     } else {
         let pid: u32 = args[1].parse()?;
         let mut dll_bytes = Vec::new();
@@ -23,4 +22,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("Injected!");
     }
+
+    Ok(())
 }
