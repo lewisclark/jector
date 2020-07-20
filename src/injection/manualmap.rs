@@ -5,29 +5,29 @@ use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
+use crate::winapiwrapper::snapshotflags::SnapshotFlags;
 use crate::winapiwrapper::thread::{self, Thread, TEB};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use field_offset::offset_of;
+use pelite::pe64::imports::Import::{ByName, ByOrdinal};
 use pelite::pe64::{Pe, PeFile};
 use std::error;
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr};
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
-use winapi::shared::minwindef::{BOOL, DWORD, FARPROC, HINSTANCE, HMODULE, LPVOID};
+use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
+use winapi::um::tlhelp32::MODULEENTRY32;
 use winapi::um::winnt::{
-    DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_DIRECTORY_ENTRY_IMPORT,
-    IMAGE_IMPORT_BY_NAME, IMAGE_IMPORT_DESCRIPTOR, IMAGE_ORDINAL_FLAG, IMAGE_REL_BASED_DIR64,
-    IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, LPCSTR, PRUNTIME_FUNCTION,
+    DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_DIR64,
+    IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
 const MAX_TLS_INDEX: usize = 1088;
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
-type FnLoadLibraryA = unsafe extern "system" fn(LPCSTR) -> HMODULE;
-type FnGetProcAddress = unsafe extern "system" fn(HMODULE, LPCSTR) -> FARPROC;
 type FnRtlAddFunctionTable = unsafe extern "system" fn(PRUNTIME_FUNCTION, u32, u64) -> u8;
 
 pub struct ManualMapInjector {}
@@ -102,6 +102,41 @@ impl Injector for ManualMapInjector {
                     let block = image_delta + usize::from_ne_bytes(buf);
                     image_mem.write_memory(&block.to_ne_bytes(), rva as usize)?;
                 }
+            }
+        }
+
+        // Resolve imports
+        let module_entries: Vec<MODULEENTRY32> = process
+            .snapshot(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32)?
+            .module_entries(pid)
+            .collect();
+
+        for descriptor in pe.imports()? {
+            let module_name = descriptor.dll_name()?.to_str()?.to_ascii_lowercase();
+
+            let module_entry = module_entries.iter().find(|entry| {
+                (unsafe { CStr::from_ptr(entry.szModule.as_ptr()) })
+                    .to_str()
+                    .unwrap() // FIXME: Unwrap usage
+                    .to_ascii_lowercase()
+                    == module_name
+            });
+
+            let module = match module_entry {
+                Some(entry) => unsafe { Library::from_handle(entry.hModule, true) },
+                None => Library::load_external(&process, &module_name)?,
+                // TODO: Manually map instead of using load_external (LoadLibraryExA)
+            };
+
+            for (&va, import) in descriptor.iat()?.zip(descriptor.int()?) {
+                let import_address = match import? {
+                    ByName { hint: _, name } => Ok(module.proc_address(name.to_str()?)? as usize),
+                    ByOrdinal { ord: _ } => Err(Error::new(
+                        "Ordinal import resolution not implemented".to_string(),
+                    )),
+                }?;
+
+                image_mem.write_memory(&import_address.to_ne_bytes(), va as usize)?;
             }
         }
 
@@ -282,21 +317,9 @@ impl Injector for ManualMapInjector {
         let lib_kernel32 = Library::load_internal("kernel32.dll")?;
         let loader_info = LoaderInfo {
             image_base: image_mem.address() as usize,
-            image_delta,
             optional_header: *pe.optional_header(),
-            import_directory: pe.data_directory()[IMAGE_DIRECTORY_ENTRY_IMPORT as usize],
             exception_fn_table,
             exception_fn_count,
-            load_library: unsafe {
-                mem::transmute::<*const (), FnLoadLibraryA>(
-                    lib_kernel32.proc_address("LoadLibraryA")?,
-                )
-            },
-            get_proc_address: unsafe {
-                mem::transmute::<*const (), FnGetProcAddress>(
-                    lib_kernel32.proc_address("GetProcAddress")?,
-                )
-            },
             rtl_add_function_table: unsafe {
                 mem::transmute::<*const (), FnRtlAddFunctionTable>(
                     lib_kernel32.proc_address("RtlAddFunctionTable")?,
@@ -347,7 +370,7 @@ impl Injector for ManualMapInjector {
         let code = thread.exit_code()?;
         println!("Remote thread exit code: {}", code);
 
-        Ok(image_mem.address())
+        Ok(image_mem.address() as usize)
     }
 }
 
@@ -355,66 +378,17 @@ impl Injector for ManualMapInjector {
 #[repr(C)]
 struct LoaderInfo {
     image_base: usize,
-    image_delta: usize,
     optional_header: pelite::pe64::image::IMAGE_OPTIONAL_HEADER,
-    import_directory: pelite::image::IMAGE_DATA_DIRECTORY,
     exception_fn_table: PRUNTIME_FUNCTION,
     exception_fn_count: u32,
-    load_library: FnLoadLibraryA,
-    get_proc_address: FnGetProcAddress,
     rtl_add_function_table: FnRtlAddFunctionTable,
 }
 
 unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     let loader_info = &*(param as *const LoaderInfo);
 
-    {
-        let mut import_descriptor = (loader_info.image_base
-            + loader_info.import_directory.VirtualAddress as usize)
-            as *const IMAGE_IMPORT_DESCRIPTOR;
-
-        while (*import_descriptor).Name != 0 {
-            let module = (loader_info.load_library)(
-                (loader_info.image_base + (*import_descriptor).Name as usize) as LPCSTR,
-            );
-
-            if module as usize == 0 {
-                return 10;
-            }
-
-            let mut orig_first_thunk = (loader_info.image_base
-                + *(import_descriptor as *const u32) as usize)
-                as *const usize;
-            let mut first_thunk =
-                (loader_info.image_base + (*import_descriptor).FirstThunk as usize) as *mut usize;
-
-            while *orig_first_thunk != 0 {
-                let proc = if (*orig_first_thunk & IMAGE_ORDINAL_FLAG as usize) != 0 as usize {
-                    (loader_info.get_proc_address)(module, (*orig_first_thunk & 0xffff) as LPCSTR)
-                } else {
-                    let import_by_name =
-                        (loader_info.image_base + *orig_first_thunk) as *const IMAGE_IMPORT_BY_NAME;
-
-                    (loader_info.get_proc_address)(module, &(*import_by_name).Name as LPCSTR)
-                } as usize;
-
-                if proc == 0 {
-                    return 20;
-                } else {
-                    *first_thunk = proc;
-
-                    orig_first_thunk = (orig_first_thunk as usize + PTR_SIZE) as *const usize;
-                    first_thunk = (first_thunk as usize + PTR_SIZE) as *mut usize;
-                }
-            }
-
-            import_descriptor = (import_descriptor as usize
-                + mem::size_of::<IMAGE_IMPORT_DESCRIPTOR>())
-                as *const IMAGE_IMPORT_DESCRIPTOR;
-        }
-    }
-
     // Fix SEH
+    // TODO: Check ret value
     (loader_info.rtl_add_function_table)(
         loader_info.exception_fn_table,
         loader_info.exception_fn_count,
