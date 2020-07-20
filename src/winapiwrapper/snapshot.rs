@@ -2,6 +2,7 @@ use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::snapshotflags::SnapshotFlags;
 use std::mem::size_of;
+use std::ptr;
 use winapi::shared::minwindef::{BYTE, HMODULE};
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::tlhelp32::CreateToolhelp32Snapshot;
@@ -119,7 +120,7 @@ impl Iterator for SnapshotModuleEntries {
             th32ProcessID: self.pid,
             GlblcntUsage: 0,
             ProccntUsage: 0,
-            modBaseAddr: 0 as *mut BYTE,
+            modBaseAddr: ptr::null_mut::<BYTE>(),
             modBaseSize: 0,
             hModule: 0 as HMODULE,
             szModule: [0; 256],

@@ -61,7 +61,7 @@ impl Injector for LoadLibraryInjector {
 
         // Obtain the address of LoadLibrary
         // TODO: Use Library::load_external when it is stable with proc_address_external
-        let libkernel32 = Library::load("kernel32.dll")?;
+        let libkernel32 = Library::load_internal("kernel32.dll")?;
         let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
         // Transmute loadlibrary into the start routine signature

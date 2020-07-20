@@ -281,7 +281,7 @@ impl Injector for ManualMapInjector {
         );
 
         // Construct LoaderInfo
-        let lib_kernel32 = Library::load("kernel32.dll")?;
+        let lib_kernel32 = Library::load_internal("kernel32.dll")?;
         let loader_info = LoaderInfo {
             image_base: image_mem.address() as usize,
             image_delta,
