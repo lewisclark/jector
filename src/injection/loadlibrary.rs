@@ -53,9 +53,9 @@ impl Injector for LoadLibraryInjector {
         )?;
 
         // Write file path to buffer
-        let path_bytes = CString::new(file_path.to_str().ok_or(Box::new(Error::new(
-            "Failed to convert file path to str".to_string(),
-        )))?)?
+        let path_bytes = CString::new(file_path.to_str().ok_or_else(|| {
+            Box::new(Error::new("Failed to convert file path to str".to_string()))
+        })?)?
         .into_bytes();
         buffer.write_memory(path_bytes.as_slice(), 0)?;
 
