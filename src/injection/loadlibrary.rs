@@ -22,15 +22,19 @@ pub struct LoadLibraryInjector {}
 impl Injector for LoadLibraryInjector {
     fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
         // Determine file path for library
-        let mut file_path = env::temp_dir();
-        file_path.push("image.dll"); // TODO: Randomize file name
-        let file_path = file_path.as_path();
         // TODO: Ensure file_path length does not exceed (MAX_PATH - 1) nul byte
+        // TODO: Randomize image file name
+        let mut file_path = env::temp_dir();
+        file_path.push("image.dll");
+        let file_path = file_path.as_path();
 
         // Write the file to disk so that LoadLibraryA can use it
-        let mut file = File::create(file_path)?;
-        file.write_all(image)?;
-        file.sync_data()?;
+        {
+            // Enclosed in braces so the lock on this file is freed for LoadLibrary to acquire
+            let mut file = File::create(file_path)?;
+            file.write_all(image)?;
+            file.sync_data()?;
+        }
 
         // Open a handle to the target process
         let process = Process::from_pid(
