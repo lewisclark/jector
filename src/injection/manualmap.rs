@@ -242,9 +242,7 @@ impl Injector for ManualMapInjector {
             } else if read && write {
                 ProtectFlag::PAGE_READWRITE
             } else if read {
-                //ProtectFlag::PAGE_READONLY
-                // Temporary hack because imports get fixed later in the loader which requires write access
-                ProtectFlag::PAGE_READWRITE
+                ProtectFlag::PAGE_READONLY
             } else if exec {
                 ProtectFlag::PAGE_EXECUTE
             } else {
