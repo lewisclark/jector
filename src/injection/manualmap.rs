@@ -124,7 +124,7 @@ impl Injector for ManualMapInjector {
 
             let module = match module_entry {
                 Some(entry) => unsafe { Library::from_handle(entry.hModule, entry.th32ProcessID, true) },
-                None => Library::load_external(&process, &module_name)?,
+                None => Library::load_external(pid, &module_name)?,
             };
 
             for (&va, import) in descriptor.iat()?.zip(descriptor.int()?) {

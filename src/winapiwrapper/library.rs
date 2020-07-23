@@ -45,7 +45,7 @@ impl Library {
 
     // NOTE: This must check if the library in question is already loaded
     // TODO: Manual map external libraries when stable
-    pub fn load_external(_process: &Process, _name: &str) -> Result<Self, Error> {
+    pub fn load_external(pid: u32, _name: &str) -> Result<Self, Error> {
         Err(Error::new(
             "Library::load_external not implemented".to_string(),
         ))
@@ -145,8 +145,7 @@ impl Library {
                         if v.len() == 2 {
                             let (dll, fwd_proc_name) = (v.get(0).unwrap(), v.get(1).unwrap());
 
-                            // FIXME: This process handle only has PROCESS_VM_READ - bad?
-                            let lib = match Self::load_external(&process, dll) {
+                            let lib = match Self::load_external(self.pid_owning, dll) {
                                 Ok(lib) => Ok(lib),
                                 Err(e) => Err(Error::new(format!(
                                     "Failed to load external library: {}",
