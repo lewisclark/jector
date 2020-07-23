@@ -123,7 +123,7 @@ impl Injector for ManualMapInjector {
             });
 
             let module = match module_entry {
-                Some(entry) => unsafe { Library::from_handle(entry.hModule, true) },
+                Some(entry) => unsafe { Library::from_handle(entry.hModule, entry.th32ProcessID, true) },
                 None => Library::load_external(&process, &module_name)?,
                 // TODO: Manually map instead of using load_external (LoadLibraryExA)
             };
