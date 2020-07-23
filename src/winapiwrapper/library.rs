@@ -1,13 +1,19 @@
 use super::error::Error;
+use super::handleowner::HandleOwner;
 use super::process::Process;
+use super::processaccess::ProcessAccess;
+use pelite::pe64::PeView;
 use std::ffi::CString;
-use winapi::shared::minwindef::HMODULE;
+use std::mem::size_of;
+use winapi::shared::minwindef::{HMODULE, LPVOID};
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
+use winapi::um::psapi::{GetModuleInformation, MODULEINFO};
 
 // TODO: Rename to Module
 
 pub struct Library {
     handle: HMODULE,
+    pid_owning: u32,
     is_external: bool,
 }
 
@@ -29,6 +35,7 @@ impl Library {
         } else {
             Ok(Self {
                 handle,
+                pid_owning: Process::from_current().pid()?,
                 is_external: false,
             })
         }
@@ -40,9 +47,10 @@ impl Library {
         ))
     }
 
-    pub unsafe fn from_handle(handle: HMODULE, is_external: bool) -> Self {
+    pub unsafe fn from_handle(handle: HMODULE, pid_owning: u32, is_external: bool) -> Self {
         Self {
             handle,
+            pid_owning,
             is_external,
         }
     }
@@ -74,8 +82,38 @@ impl Library {
     }
 
     fn proc_address_external(&self, _proc_name: &str) -> Result<*const (), Error> {
-        Err(Error::new(
-            "Library::proc_address_external not implemented".to_string(),
-        ))
+        // TODO: Use more restrictive ProcessAccess permissions
+        let process = Process::from_pid(self.pid_owning, ProcessAccess::PROCESS_ALL_ACCESS, false)?;
+
+        Ok(0 as *const ())
+    }
+
+    fn info(&self) -> Result<MODULEINFO, Error> {
+        let process = Process::from_pid(
+            self.pid_owning,
+            ProcessAccess::PROCESS_QUERY_INFORMATION | ProcessAccess::PROCESS_VM_READ,
+            false,
+        )?;
+
+        let mut info = MODULEINFO {
+            lpBaseOfDll: 0 as LPVOID,
+            SizeOfImage: 0,
+            EntryPoint: 0 as LPVOID,
+        };
+
+        let ret = unsafe {
+            GetModuleInformation(
+                process.handle(),
+                self.handle,
+                &mut info as *mut MODULEINFO,
+                size_of::<MODULEINFO>() as u32,
+            )
+        };
+
+        if ret != 0 {
+            Ok(info)
+        } else {
+            Err(Error::new("GetModuleInformation returned NULL".to_string()))
+        }
     }
 }
