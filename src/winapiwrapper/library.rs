@@ -44,6 +44,7 @@ impl Library {
     }
 
     // NOTE: This must check if the library in question is already loaded
+    // TODO: Manual map external libraries when stable
     pub fn load_external(_process: &Process, _name: &str) -> Result<Self, Error> {
         Err(Error::new(
             "Library::load_external not implemented".to_string(),
@@ -132,8 +133,6 @@ impl Library {
                 e
             ))),
         }?;
-
-        println!("proc: {}", proc_name);
 
         match export {
             Symbol(&rva) => Ok((rva as usize + info.lpBaseOfDll as usize) as *const ()),
