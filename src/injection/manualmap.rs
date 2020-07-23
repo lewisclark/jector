@@ -18,6 +18,7 @@ use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
+use winapi::um::tlhelp32::MODULEENTRY32;
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_DIR64,
     IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
@@ -108,21 +109,31 @@ impl Injector for ManualMapInjector {
         for descriptor in pe.imports()? {
             let module_name = descriptor.dll_name()?.to_str()?.to_ascii_lowercase();
 
-            let module_entry = process
+            let module_entry: Option<Result<MODULEENTRY32, Error>> = process
                 .snapshot(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32)?
                 .module_entries(pid)
-                .find(|entry| {
-                    (unsafe { CStr::from_ptr(entry.szModule.as_ptr()) })
-                        .to_str()
-                        .unwrap() // FIXME: Unwrap usage
-                        .to_ascii_lowercase()
-                        == module_name
-                });
+                .filter_map(|entry| {
+                    let s = match (unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }).to_str() {
+                        Ok(s) => s,
+                        Err(e) => {
+                            return Some(Err(Error::new(format!(
+                                "Failed to convert CStr to str: {}",
+                                e
+                            ))))
+                        }
+                    }
+                    .to_ascii_lowercase();
+
+                    if s == module_name {
+                        Some(Ok(entry))
+                    } else {
+                        None
+                    }
+                })
+                .next();
 
             let module = match module_entry {
-                Some(entry) => unsafe {
-                    Library::from_handle(entry.hModule, entry.th32ProcessID, true)
-                },
+                Some(entry) => unsafe { Library::from_handle(entry?.hModule, pid, true) },
                 None => Library::load_external(pid, &module_name)?,
             };
 
