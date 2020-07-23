@@ -145,6 +145,7 @@ impl Library {
                         if v.len() == 2 {
                             let (dll, fwd_proc_name) = (v.get(0).unwrap(), v.get(1).unwrap());
 
+                            // FIXME: This process handle only has PROCESS_VM_READ - bad?
                             let lib = match Self::load_external(&process, dll) {
                                 Ok(lib) => Ok(lib),
                                 Err(e) => Err(Error::new(format!(
