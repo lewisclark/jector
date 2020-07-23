@@ -2,6 +2,8 @@ use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::process::Process;
 use super::processaccess::ProcessAccess;
+use pelite::pe64::exports::Export::{Forward, Symbol};
+use pelite::pe64::Pe;
 use pelite::pe64::PeView;
 use std::ffi::CString;
 use std::mem::size_of;
@@ -41,6 +43,7 @@ impl Library {
         }
     }
 
+    // NOTE: This must check if the library in question is already loaded
     pub fn load_external(_process: &Process, _name: &str) -> Result<Self, Error> {
         Err(Error::new(
             "Library::load_external not implemented".to_string(),
@@ -81,11 +84,93 @@ impl Library {
         }
     }
 
-    fn proc_address_external(&self, _proc_name: &str) -> Result<*const (), Error> {
-        // TODO: Use more restrictive ProcessAccess permissions
-        let process = Process::from_pid(self.pid_owning, ProcessAccess::PROCESS_ALL_ACCESS, false)?;
+    fn proc_address_external(&self, proc_name: &str) -> Result<*const (), Error> {
+        let process = Process::from_pid(self.pid_owning, ProcessAccess::PROCESS_VM_READ, false)?;
+        let info = self.info()?;
 
-        Ok(0 as *const ())
+        let mut buf: Vec<u8> = Vec::new();
+        buf.resize(info.SizeOfImage as usize, 0);
+        process.read_memory(buf.as_mut_slice(), info.lpBaseOfDll as usize)?;
+
+        // TODO: Cache pe inside the Library struct - running it for every proc_address is expensive
+        let pe = match PeView::from_bytes(buf.as_slice()) {
+            Ok(pe) => Ok(pe),
+            Err(e) => Err(Error::new(format!("PeView::from_bytes failed: {}", e))),
+        }?;
+
+        let exports = match pe.exports() {
+            Ok(exports) => Ok(exports),
+            Err(e) => Err(Error::new(format!(
+                "Failed to obtain exports from PE: {}",
+                e
+            ))),
+        }?;
+
+        let by = match exports.by() {
+            Ok(by) => Ok(by),
+            Err(e) => Err(Error::new(format!("Failed to obtain by: {}", e))),
+        }?;
+
+        match by.check_sorted() {
+            Ok(is_sorted) => {
+                if !is_sorted {
+                    Err(Error::new("Export table isn't sorted".to_string()))
+                } else {
+                    Ok(())
+                }
+            }
+            Err(e) => Err(Error::new(format!(
+                "Failed to obtain sorted status of export table: {}",
+                e
+            ))),
+        }?;
+
+        let export = match by.name(proc_name) {
+            Ok(export) => Ok(export),
+            Err(e) => Err(Error::new(format!(
+                "Failed to obtain export by name: {}",
+                e
+            ))),
+        }?;
+
+        println!("proc: {}", proc_name);
+
+        match export {
+            Symbol(&rva) => Ok((rva as usize + info.lpBaseOfDll as usize) as *const ()),
+            Forward(name) => {
+                // TODO: Check for ordinal forwarded exports
+                match name.to_str() {
+                    Ok(name) => {
+                        let v: Vec<&str> = name.split('.').take(2).collect();
+
+                        if v.len() == 2 {
+                            let (dll, fwd_proc_name) = (v.get(0).unwrap(), v.get(1).unwrap());
+
+                            let lib = match Self::load_external(&process, dll) {
+                                Ok(lib) => Ok(lib),
+                                Err(e) => Err(Error::new(format!(
+                                    "Failed to load external library: {}",
+                                    e
+                                ))),
+                            }?;
+
+                            match lib.proc_address(fwd_proc_name) {
+                                Ok(proc) => Ok(proc),
+                                Err(e) => Err(Error::new(format!(
+                                    "Failed to obtain proc address of forwarded export: {}",
+                                    e
+                                ))),
+                            }
+                        } else {
+                            Err(Error::new(
+                                "Export forward was not formatted properly".to_string(),
+                            ))
+                        }
+                    }
+                    Err(e) => Err(Error::new(format!("Failed to convert CStr to str: {}", e))),
+                }
+            }
+        }
     }
 
     fn info(&self) -> Result<MODULEINFO, Error> {
