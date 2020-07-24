@@ -12,7 +12,7 @@ use field_offset::offset_of;
 use pelite::pe64::imports::Import::{ByName, ByOrdinal};
 use pelite::pe64::{Pe, PeFile};
 use std::error;
-use std::ffi::{c_void};
+use std::ffi::c_void;
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;

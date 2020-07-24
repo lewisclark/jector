@@ -181,15 +181,17 @@ impl Process {
             .snapshot(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32)?
             .module_entries(self.pid()?)
             .filter_map(|entry| {
-                let entry_name = match unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }.to_str() {
-                    Ok(name) => name,
-                    Err(e) => {
-                        return Some(Err(Error::new(format!(
-                            "Failed to construct CStr from MODULEENTRY32.szModule: {}",
-                            e
-                        ))))
+                let entry_name =
+                    match unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }.to_str() {
+                        Ok(name) => name,
+                        Err(e) => {
+                            return Some(Err(Error::new(format!(
+                                "Failed to construct CStr from MODULEENTRY32.szModule: {}",
+                                e
+                            ))))
+                        }
                     }
-                }.to_ascii_lowercase();
+                    .to_ascii_lowercase();
 
                 if entry_name == name {
                     Some(Ok(entry))
