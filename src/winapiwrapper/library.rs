@@ -7,6 +7,7 @@ use pelite::pe64::Pe;
 use pelite::pe64::PeView;
 use std::ffi::CString;
 use std::mem::size_of;
+use std::path::Path;
 use winapi::shared::minwindef::{HMODULE, LPVOID};
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
 use winapi::um::psapi::{GetModuleInformation, MODULEINFO};
@@ -43,12 +44,25 @@ impl Library {
         }
     }
 
-    // NOTE: This must check if the library in question is already loaded
     // TODO: Manual map external libraries when stable
-    pub fn load_external(pid: u32, _name: &str) -> Result<Self, Error> {
-        Err(Error::new(
-            "Library::load_external not implemented".to_string(),
-        ))
+    pub fn load_external(pid: u32, name: &str) -> Result<Self, Error> {
+        let name = name.to_ascii_lowercase();
+        let file = Path::new(&name).with_extension("dll");
+        // FIXME: Make ProcessAccess more restrictive
+        let process = Process::from_pid(pid, ProcessAccess::PROCESS_ALL_ACCESS, false)?;
+
+        match process.module_entry_by_name(&name)? {
+            Some(entry) => return Ok(unsafe { Self::from_handle(entry.hModule, pid, true) }),
+            None => {}
+        };
+
+        // Find full path to dll specified by name
+        // Inject it into the target process and return it
+
+        Err(Error::new(format!(
+            "Library::load_external not implemented ({})",
+            file.as_path().to_str().unwrap()
+        )))
     }
 
     pub unsafe fn from_handle(handle: HMODULE, pid_owning: u32, is_external: bool) -> Self {
