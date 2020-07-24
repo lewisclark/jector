@@ -36,11 +36,7 @@ impl Library {
         if handle.is_null() {
             Err(Error::new("LoadLibraryA returned NULL".to_string()))
         } else {
-            Ok(Self {
-                handle,
-                pid_owning: Process::from_current().pid()?,
-                is_external: false,
-            })
+            Ok(unsafe { Self::from_handle(handle, Process::from_current().pid()?, false) })
         }
     }
 
