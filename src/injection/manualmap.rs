@@ -5,7 +5,6 @@ use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
-use crate::winapiwrapper::snapshotflags::SnapshotFlags;
 use crate::winapiwrapper::thread::{self, Thread, TEB};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
@@ -13,12 +12,11 @@ use field_offset::offset_of;
 use pelite::pe64::imports::Import::{ByName, ByOrdinal};
 use pelite::pe64::{Pe, PeFile};
 use std::error;
-use std::ffi::{c_void, CStr};
+use std::ffi::{c_void};
 use std::mem;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
-use winapi::um::tlhelp32::MODULEENTRY32;
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_DIR64,
     IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
@@ -107,33 +105,11 @@ impl Injector for ManualMapInjector {
 
         // Resolve imports
         for descriptor in pe.imports()? {
-            let module_name = descriptor.dll_name()?.to_str()?.to_ascii_lowercase();
-
-            let module_entry: Option<Result<MODULEENTRY32, Error>> = process
-                .snapshot(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32)?
-                .module_entries(pid)
-                .filter_map(|entry| {
-                    let s = match (unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }).to_str() {
-                        Ok(s) => s,
-                        Err(e) => {
-                            return Some(Err(Error::new(format!(
-                                "Failed to convert CStr to str: {}",
-                                e
-                            ))))
-                        }
-                    }
-                    .to_ascii_lowercase();
-
-                    if s == module_name {
-                        Some(Ok(entry))
-                    } else {
-                        None
-                    }
-                })
-                .next();
+            let module_name = descriptor.dll_name()?.to_str()?;
+            let module_entry = process.module_entry_by_name(module_name)?;
 
             let module = match module_entry {
-                Some(entry) => unsafe { Library::from_handle(entry?.hModule, pid, true) },
+                Some(entry) => unsafe { Library::from_handle(entry.hModule, pid, true) },
                 None => Library::load_external(pid, &module_name)?,
             };
 

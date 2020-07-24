@@ -6,12 +6,15 @@ use super::snapshot::Snapshot;
 use super::snapshotflags::SnapshotFlags;
 use super::thread::Thread;
 use super::threadaccess::ThreadAccess;
+use std::ffi::CStr;
 use std::ops::Drop;
+use std::path::Path;
 use winapi::ctypes::c_void;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
+use winapi::um::tlhelp32::MODULEENTRY32;
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
@@ -160,6 +163,46 @@ impl Process {
             Ok(old_protect)
         } else {
             Err(Error::new("VirtualProtectEx returned NULL".to_string()))
+        }
+    }
+
+    // FIXME: Won't work for manually mapped modules
+    pub fn module_entry_by_name(&self, name: &str) -> Result<Option<MODULEENTRY32>, Error> {
+        // Ensure consistency - make lowercase and ensure .dll extension is present
+        let name = match Path::new(name).with_extension("dll").to_str() {
+            Some(name) => Ok(name),
+            None => Err(Error::new(
+                "Failed to construct Path for module".to_string(),
+            )),
+        }?
+        .to_ascii_lowercase();
+
+        let entry: Option<Result<MODULEENTRY32, Error>> = self
+            .snapshot(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32)?
+            .module_entries(self.pid()?)
+            .filter_map(|entry| {
+                let entry_name = match unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }.to_str() {
+                    Ok(name) => name,
+                    Err(e) => {
+                        return Some(Err(Error::new(format!(
+                            "Failed to construct CStr from MODULEENTRY32.szModule: {}",
+                            e
+                        ))))
+                    }
+                }.to_ascii_lowercase();
+
+                if entry_name == name {
+                    Some(Ok(entry))
+                } else {
+                    None
+                }
+            })
+            .next();
+
+        if entry.is_none() {
+            Ok(None)
+        } else {
+            Ok(Some(entry.unwrap()?))
         }
     }
 }
