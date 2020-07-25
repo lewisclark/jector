@@ -16,3 +16,5 @@ winapi = { version = "0.3.9", features = ["winnt", "processthreadsapi", "handlea
 pelite = "0.8.1"
 bitflags = "1.2.1"
 field-offset = "0.3.1"
+dynasm = "1.0.0"
+dynasmrt = "1.0.0"
