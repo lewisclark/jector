@@ -2,6 +2,7 @@ use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::process::Process;
 use super::processaccess::ProcessAccess;
+use crate::injection::loadlibrary::LoadLibraryInjector;
 use pelite::pe64::exports::Export::{Forward, Symbol};
 use pelite::pe64::Pe;
 use pelite::pe64::PeView;
@@ -40,25 +41,41 @@ impl Library {
         }
     }
 
-    // TODO: Manual map external libraries when stable
     pub fn load_external(pid: u32, name: &str) -> Result<Self, Error> {
         let name = name.to_ascii_lowercase();
         let file = Path::new(&name).with_extension("dll");
-        // FIXME: Make ProcessAccess more restrictive
-        let process = Process::from_pid(pid, ProcessAccess::PROCESS_ALL_ACCESS, false)?;
+        let process =
+            Process::from_pid(pid, ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION, false)?;
 
         match process.module_entry_by_name(&name)? {
             Some(entry) => return Ok(unsafe { Self::from_handle(entry.hModule, pid, true) }),
             None => {}
         };
 
-        // Find full path to dll specified by name
-        // Inject it into the target process and return it
+        // FIXME: Temporary path resolution
+        let mut mapping: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
 
-        Err(Error::new(format!(
-            "Library::load_external not implemented ({})",
-            file.as_path().to_str().unwrap()
-        )))
+        let loc = if name.starts_with("api-ms-win-crt-") {
+            Ok("C:\\Windows\\System32\\downlevel\\a")
+        } else {
+            Ok("C:\\Windows\\System32\\a")
+        }?;
+
+        let mut lib_path = Path::new(loc).to_path_buf();
+        lib_path.set_file_name(name);
+        let lib_path = lib_path
+            .to_str()
+            .ok_or_else(|| Error::new("Failed to convert PathBuf to str".to_string()))?;
+
+        // TODO: Manual map external libraries when stable
+        match LoadLibraryInjector::inject_library(pid, lib_path) {
+            Ok(base) => Ok(unsafe { Self::from_handle(base as HMODULE, pid, true) }),
+            Err(e) => Err(Error::new(format!(
+                "Failed to inject external library: {}",
+                e
+            ))),
+        }
     }
 
     pub unsafe fn from_handle(handle: HMODULE, pid_owning: u32, is_external: bool) -> Self {
