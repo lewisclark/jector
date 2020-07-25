@@ -42,20 +42,23 @@ impl Library {
     }
 
     pub fn load_external(pid: u32, name: &str) -> Result<Self, Error> {
-        let name = name.to_ascii_lowercase();
-        let file = Path::new(&name).with_extension("dll");
+        let path = Path::new(&name.to_ascii_lowercase()).with_extension("dll");
+        let name = match path.to_str() {
+            Some(name) => Ok(name),
+            None => Err(Error::new("Failed to convert path to string".to_string())),
+        }?;
+
         let process =
             Process::from_pid(pid, ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION, false)?;
 
-        match process.module_entry_by_name(&name)? {
-            Some(entry) => return Ok(unsafe { Self::from_handle(entry.hModule, pid, true) }),
-            None => {}
-        };
+        // Check if the module is already loaded in the target process first
+        if let Some(entry) = process.module_entry_by_name(&name)? {
+            return Ok(unsafe { Self::from_handle(entry.hModule, pid, true) });
+        }
+
+        // It's not loaded, let's load it ourself
 
         // FIXME: Temporary path resolution
-        let mut mapping: std::collections::HashMap<String, String> =
-            std::collections::HashMap::new();
-
         let loc = if name.starts_with("api-ms-win-crt-") {
             Ok("C:\\Windows\\System32\\downlevel\\a")
         } else {
