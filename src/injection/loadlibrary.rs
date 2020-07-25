@@ -8,14 +8,17 @@ use crate::winapiwrapper::protectflag::ProtectFlag;
 use crate::winapiwrapper::thread::{self, Thread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
+use dynasmrt::{dynasm, DynasmApi};
 use pelite::pe64::PeFile;
 use std::env;
-use std::ffi::c_void;
 use std::ffi::CString;
 use std::fs::{self, File};
 use std::io::Write;
+use std::mem::size_of;
 use std::mem::transmute;
 use winapi::shared::minwindef::MAX_PATH;
+
+const PTR_SIZE: usize = size_of::<usize>();
 
 pub struct LoadLibraryInjector {}
 
@@ -28,7 +31,8 @@ impl LoadLibraryInjector {
                 | ProcessAccess::PROCESS_CREATE_THREAD
                 | ProcessAccess::PROCESS_QUERY_INFORMATION
                 | ProcessAccess::PROCESS_VM_OPERATION
-                | ProcessAccess::PROCESS_VM_WRITE,
+                | ProcessAccess::PROCESS_VM_WRITE
+                | ProcessAccess::PROCESS_VM_READ,
             false,
         )?;
 
@@ -36,30 +40,58 @@ impl LoadLibraryInjector {
         let buffer = VirtualMem::alloc(
             &process,
             0,
-            MAX_PATH as usize,
+            MAX_PATH as usize + PTR_SIZE,
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_READWRITE,
         )?;
 
         // Write file path to buffer
         let path_bytes = CString::new(path)?.into_bytes();
-        buffer.write_memory(path_bytes.as_slice(), 0)?;
+        buffer.write_memory(path_bytes.as_slice(), PTR_SIZE)?;
 
         // Obtain the address of LoadLibrary
         // TODO: Use Library::load_external when it is stable with proc_address_external
         let libkernel32 = Library::load_internal("kernel32.dll")?;
         let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
-        // Transmute loadlibrary into the start routine signature
-        let loadlibrary = unsafe { transmute::<*const (), thread::StartRoutine>(loadlibrary) };
+        let mut assembler = dynasmrt::x64::Assembler::new()?;
+        dynasm!(assembler
+            ; .arch x64
+            ; mov r8, QWORD loadlibrary as _                        // Move LoadLibraryA into r8
+            ; mov rcx, QWORD (buffer.address() + PTR_SIZE) as _     // Move library name to rcx
+            ; sub rsp, 0x20                                         // Allocate 32 bytes of shadow space
+            ; call r8                                               // Call LoadLibraryA
+            ; add rsp, 0x20                                         // Reclaim shadow space
+            ; mov rcx, QWORD buffer.address() as _                  // Move buffer address (handle dest)
+            ; mov [rcx], rax                                        // Put returned handle in handle dest
+            ; xor rax, rax                                          // set rax to = 0 as ret val
+            ; ret                                                   // Return to caller
+        );
+        assembler.commit()?;
+        let stub = assembler.finalize().unwrap();
 
-        // Spawn a remote thread to execute LoadLibrary
+        // Allocate a buffer for the stub code
+        let stub_buffer = VirtualMem::alloc(
+            &process,
+            0,
+            stub.size(),
+            AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
+            ProtectFlag::PAGE_EXECUTE_READWRITE,
+        )?;
+
+        // Write file path to buffer
+        stub_buffer.write_memory(&stub, 0)?;
+
+        // Transmute dynamic asm to a function pointer
+        let stub_fn = unsafe { transmute::<usize, thread::StartRoutine>(stub_buffer.address()) };
+
+        // Spawn a remote thread to execute the stub
         let thr = Thread::spawn_remote(
             &process,
             None,
             None,
-            loadlibrary,
-            Some(buffer.address() as *mut c_void),
+            stub_fn,
+            None,
             ThreadCreationFlags::IMMEDIATE,
             None,
         )?;
@@ -67,11 +99,16 @@ impl LoadLibraryInjector {
         // Wait for the thread to finish execution
         thr.wait(10000)?;
 
-        // Obtain thread exit code
-        let loadlibrary_ret = thr.exit_code()?;
+        // Read handle from the buffer that was written by the stub
+        let handle = {
+            let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
+            buffer.read_memory(&mut buf, 0)?;
 
-        if loadlibrary_ret != 0 {
-            Ok(loadlibrary_ret as usize)
+            usize::from_ne_bytes(buf)
+        };
+
+        if thr.exit_code()? == 0 {
+            Ok(handle)
         } else {
             Err(Box::new(Error::new(
                 "LoadLibrary injection returned NULL".to_string(),
