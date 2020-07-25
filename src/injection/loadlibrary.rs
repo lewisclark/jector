@@ -19,23 +19,8 @@ use winapi::shared::minwindef::MAX_PATH;
 
 pub struct LoadLibraryInjector {}
 
-impl Injector for LoadLibraryInjector {
-    fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
-        // Determine file path for library
-        // TODO: Ensure file_path length does not exceed (MAX_PATH - 1) nul byte
-        // TODO: Randomize image file name
-        let mut file_path = env::temp_dir();
-        file_path.push("image.dll");
-        let file_path = file_path.as_path();
-
-        // Write the file to disk so that LoadLibraryA can use it
-        {
-            // Enclosed in braces so the lock on this file is freed for LoadLibrary to acquire
-            let mut file = File::create(file_path)?;
-            file.write_all(image)?;
-            file.sync_data()?;
-        }
-
+impl LoadLibraryInjector {
+    pub fn inject_library(pid: u32, path: &str) -> Result<usize, Box<dyn std::error::Error>> {
         // Open a handle to the target process
         let process = Process::from_pid(
             pid,
@@ -57,10 +42,7 @@ impl Injector for LoadLibraryInjector {
         )?;
 
         // Write file path to buffer
-        let path_bytes = CString::new(file_path.to_str().ok_or_else(|| {
-            Box::new(Error::new("Failed to convert file path to str".to_string()))
-        })?)?
-        .into_bytes();
+        let path_bytes = CString::new(path)?.into_bytes();
         buffer.write_memory(path_bytes.as_slice(), 0)?;
 
         // Obtain the address of LoadLibrary
@@ -85,9 +67,6 @@ impl Injector for LoadLibraryInjector {
         // Wait for the thread to finish execution
         thr.wait(10000)?;
 
-        // Clean up image file
-        fs::remove_file(file_path)?;
-
         // Obtain thread exit code
         let loadlibrary_ret = thr.exit_code()?;
 
@@ -98,5 +77,36 @@ impl Injector for LoadLibraryInjector {
                 "LoadLibrary injection returned NULL".to_string(),
             )))
         }
+    }
+}
+
+impl Injector for LoadLibraryInjector {
+    fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
+        // Determine file path for library
+        // TODO: Ensure file_path length does not exceed (MAX_PATH - 1) nul byte
+        // TODO: Randomize image file name
+        let mut file_path = env::temp_dir();
+        file_path.push("image.dll");
+        let file_path = file_path.as_path();
+
+        // Write the file to disk so that LoadLibraryA can use it
+        {
+            // Enclosed in braces so the lock on this file is freed for LoadLibrary to acquire
+            let mut file = File::create(file_path)?;
+            file.write_all(image)?;
+            file.sync_data()?;
+        }
+
+        let ret = Self::inject_library(
+            pid,
+            file_path.to_str().ok_or_else(|| {
+                Box::new(Error::new("Failed to convert file path to str".to_string()))
+            })?,
+        );
+
+        // Clean up image file
+        fs::remove_file(file_path)?;
+
+        ret
     }
 }
