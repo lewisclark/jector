@@ -57,12 +57,12 @@ impl Injector for ManualMapInjector {
 
         image_mem.set_free_on_drop(false);
 
-        let image_delta =
-            (image_mem.address() as usize).wrapping_sub(pe.optional_header().ImageBase as usize);
+        let image_base = image_mem.address();
+        let image_delta = image_base.wrapping_sub(pe.optional_header().ImageBase as usize);
 
         println!(
             "Allocated image buffer at {:x} with size {:x}",
-            image_mem.address() as usize,
+            image_base,
             image_mem.size(),
         );
 
@@ -93,7 +93,7 @@ impl Injector for ManualMapInjector {
                 let rva = block.rva_of(word) as usize;
 
                 if typ == IMAGE_REL_BASED_DIR64 {
-                    let mut buf = [0_u8; mem::size_of::<usize>()];
+                    let mut buf = [0_u8; PTR_SIZE];
                     image_mem.read_memory(&mut buf, rva)?;
 
                     let block = usize::from_ne_bytes(buf).wrapping_add(image_delta);
@@ -126,7 +126,7 @@ impl Injector for ManualMapInjector {
                             name,
                             proc_addr,
                             va,
-                            image_mem.address() + va,
+                            image_base + va,
                         );
 
                         Ok(proc_addr)
@@ -254,8 +254,8 @@ impl Injector for ManualMapInjector {
 
         let exception_data_directory =
             pe.data_directory()[IMAGE_DIRECTORY_ENTRY_EXCEPTION as usize];
-        let exception_fn_table = (exception_data_directory.VirtualAddress as usize
-            + image_mem.address()) as PRUNTIME_FUNCTION;
+        let exception_fn_table =
+            (exception_data_directory.VirtualAddress as usize + image_base) as PRUNTIME_FUNCTION;
         let exception_fn_count = exception.functions().count() as u32;
 
         println!(
@@ -302,6 +302,7 @@ impl Injector for ManualMapInjector {
         let loader_mem = VirtualMem::alloc(
             &process,
             0,
+            // FIXME: Size of loader computation doesn't work in release mode
             (loader_end as usize - loader as usize) + mem::size_of::<LoaderInfo>(),
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_EXECUTE_READWRITE,
@@ -316,7 +317,7 @@ impl Injector for ManualMapInjector {
         // Construct LoaderInfo
         let lib_kernel32 = Library::load_internal("kernel32.dll")?;
         let loader_info = LoaderInfo {
-            image_base: image_mem.address() as usize,
+            image_base,
             optional_header: *pe.optional_header(),
             exception_fn_table,
             exception_fn_count,
@@ -370,7 +371,7 @@ impl Injector for ManualMapInjector {
         let code = thread.exit_code()?;
         println!("Remote thread exit code: {}", code);
 
-        Ok(image_mem.address() as usize)
+        Ok(image_base)
     }
 }
 
