@@ -90,15 +90,14 @@ impl Injector for ManualMapInjector {
         for block in pe.base_relocs()?.iter_blocks() {
             for word in block.words() {
                 let typ = block.type_of(word) as u16;
+                let rva = block.rva_of(word) as usize;
 
                 if typ == IMAGE_REL_BASED_DIR64 {
-                    let rva = block.rva_of(word);
-
                     let mut buf = [0_u8; mem::size_of::<usize>()];
-                    image_mem.read_memory(&mut buf, rva as usize)?;
+                    image_mem.read_memory(&mut buf, rva)?;
 
-                    let block = image_delta + usize::from_ne_bytes(buf);
-                    image_mem.write_memory(&block.to_ne_bytes(), rva as usize)?;
+                    let block = usize::from_ne_bytes(buf).wrapping_add(image_delta);
+                    image_mem.write_memory(&block.to_ne_bytes(), rva)?;
                 }
             }
         }
@@ -114,14 +113,30 @@ impl Injector for ManualMapInjector {
             };
 
             for (&va, import) in descriptor.iat()?.zip(descriptor.int()?) {
-                let import_address = match import? {
-                    ByName { hint: _, name } => Ok(module.proc_address(name.to_str()?)? as usize),
+                let va = va as usize;
+                let import = import?;
+
+                let import_address = match import {
+                    ByName { hint: _, name } => {
+                        let proc_addr = module.proc_address(name.to_str()?)? as usize;
+
+                        println!(
+                            "Import {}:{} at {:x} written to va {:x} (abs: {:x})",
+                            module_name,
+                            name,
+                            proc_addr,
+                            va,
+                            image_mem.address() + va,
+                        );
+
+                        Ok(proc_addr)
+                    }
                     ByOrdinal { ord: _ } => Err(Error::new(
                         "Ordinal import resolution not implemented".to_string(),
                     )),
                 }?;
 
-                image_mem.write_memory(&import_address.to_ne_bytes(), va as usize)?;
+                image_mem.write_memory(&import_address.to_ne_bytes(), va)?;
             }
         }
 
