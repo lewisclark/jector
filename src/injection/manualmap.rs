@@ -18,7 +18,7 @@ use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
 use winapi::um::winnt::{
-    DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_DIR64,
+    DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_DIR64, IMAGE_REL_BASED_ABSOLUTE,
     IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
 };
 
@@ -58,7 +58,8 @@ impl Injector for ManualMapInjector {
         image_mem.set_free_on_drop(false);
 
         let image_base = image_mem.address();
-        let image_delta = image_base.wrapping_sub(pe.optional_header().ImageBase as usize);
+        let pref_image_base = pe.optional_header().ImageBase as usize;
+        let image_delta = image_base.wrapping_sub(pref_image_base);
 
         println!(
             "Allocated image buffer at {:x} with size {:x}",
@@ -86,19 +87,33 @@ impl Injector for ManualMapInjector {
         }
 
         // Do base relocation
-        for block in pe.base_relocs()?.iter_blocks() {
-            for word in block.words() {
-                let typ = block.type_of(word) as u16;
-                let rva = block.rva_of(word) as usize;
+        if image_delta != 0 {
+            println!("Performing base relocation");
 
-                if typ == IMAGE_REL_BASED_DIR64 {
-                    let mut buf = [0_u8; PTR_SIZE];
-                    image_mem.read_memory(&mut buf, rva)?;
+            for block in pe.base_relocs()?.iter_blocks() {
+                println!("Beginning block {:x}", block.image().VirtualAddress);
 
-                    let p = usize::from_ne_bytes(buf).wrapping_add(image_delta);
-                    image_mem.write_memory(&p.to_ne_bytes(), rva)?;
+                for word in block.words() {
+                    let typ = block.type_of(word) as u16;
+                    let rva = block.rva_of(word) as usize;
+
+                    match typ {
+                        IMAGE_REL_BASED_DIR64 => {
+                            let mut buf = [0_u8; PTR_SIZE];
+                            image_mem.read_memory(&mut buf, rva)?;
+
+                            let p = usize::from_ne_bytes(buf).wrapping_add(image_delta);
+                            image_mem.write_memory(&p.to_ne_bytes(), rva)?;
+
+                            println!("Performed DIR64 base relocation at rva {:x}", rva);
+                        },
+                        IMAGE_REL_BASED_ABSOLUTE => println!("Skipping base relocation for type ABSOLUTE"),
+                        _ => unimplemented!("Base relocation type: {:x}", typ),
+                    };
                 }
             }
+        } else {
+            println!("Base relocation not necessary");
         }
 
         // Resolve imports
