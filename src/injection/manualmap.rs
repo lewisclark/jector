@@ -46,10 +46,13 @@ impl Injector for ManualMapInjector {
             false,
         )?;
 
+        let pref_image_base = pe.optional_header().ImageBase as usize;
+
         // Allocate a buffer inside target process for the image
+        // FIXME: This will fail if pref_image_base is already allocated - alloc anywhere if so
         let mut image_mem = VirtualMem::alloc(
             &process,
-            0,
+            pref_image_base,
             pe_size,
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_EXECUTE_READWRITE,
@@ -58,7 +61,6 @@ impl Injector for ManualMapInjector {
         image_mem.set_free_on_drop(false);
 
         let image_base = image_mem.address();
-        let pref_image_base = pe.optional_header().ImageBase as usize;
         let image_delta = image_base.wrapping_sub(pref_image_base);
 
         println!(
