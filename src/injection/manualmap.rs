@@ -79,8 +79,7 @@ impl Injector for ManualMapInjector {
             println!(
                 "Section {} -> {:x} with size {:x}",
                 section.Name.to_str()?,
-                image_mem
-                    .address()
+                image_base
                     .wrapping_add(section.VirtualAddress as usize),
                 section.VirtualSize,
             );
@@ -96,8 +95,8 @@ impl Injector for ManualMapInjector {
                     let mut buf = [0_u8; PTR_SIZE];
                     image_mem.read_memory(&mut buf, rva)?;
 
-                    let block = usize::from_ne_bytes(buf).wrapping_add(image_delta);
-                    image_mem.write_memory(&block.to_ne_bytes(), rva)?;
+                    let p = usize::from_ne_bytes(buf).wrapping_add(image_delta);
+                    image_mem.write_memory(&p.to_ne_bytes(), rva)?;
                 }
             }
         }
