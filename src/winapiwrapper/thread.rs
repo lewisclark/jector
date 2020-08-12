@@ -13,7 +13,7 @@ use winapi::shared::minwindef::{PULONG, ULONG};
 use winapi::shared::ntdef::NTSTATUS;
 use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
 use winapi::um::processthreadsapi::{
-    CreateRemoteThread, GetExitCodeThread, OpenThread, THREAD_INFORMATION_CLASS,
+    CreateRemoteThread, GetExitCodeThread, OpenThread, ResumeThread, THREAD_INFORMATION_CLASS,
 };
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::WAIT_FAILED;
@@ -177,6 +177,16 @@ impl Thread {
             Ok(teb_ptr as *const TEB)
         } else {
             Err(Error::new("TebBaseAddress is NULL".to_string()))
+        }
+    }
+
+    pub fn resume(&self) -> Result<(), Error> {
+        let ret = unsafe { ResumeThread(self.handle()) } as i32;
+
+        if ret != -1 {
+            Ok(())
+        } else {
+            Err(Error::new("ResumeThread failed".to_string()))
         }
     }
 }
