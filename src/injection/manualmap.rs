@@ -6,6 +6,7 @@ use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
 use crate::winapiwrapper::thread::{self, Thread, TEB};
+use crate::winapiwrapper::threadaccess::ThreadAccess;
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use field_offset::offset_of;
@@ -169,6 +170,7 @@ impl Injector for ManualMapInjector {
         }
 
         // Initialize static TLS
+        // TODO: Call the callbacks
         let tls_dir = match pe.tls() {
             Ok(tls) => Some(Ok(tls)),
             Err(pelite::Error::Null) => None, // PE doesn't have a TLS directory
@@ -199,14 +201,14 @@ impl Injector for ManualMapInjector {
 
             tls_data_mem.write_memory(tls_dir.raw_data()?, 0)?;
 
-            // TODO: Make ThreadAccess more unpermissive
-            let thread = match process.main_thread(
-                crate::winapiwrapper::threadaccess::ThreadAccess::THREAD_ALL_ACCESS,
-                false,
-            )? {
-                Some(thread) => Ok(thread),
+            // TODO: Make ThreadAccess more restricted
+            let thread = match process
+                .threads(ThreadAccess::THREAD_ALL_ACCESS, false)?
+                .next()
+            {
+                Some(thread) => Ok(thread?),
                 None => Err(Error::new(
-                    "Failed to obtain a pid owning thread handle to the target process".to_string(),
+                    "Failed to obtain a thread handle from the target process".to_string(),
                 )),
             }?;
 

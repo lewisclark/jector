@@ -14,7 +14,7 @@ use winapi::shared::minwindef::LPVOID;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
-use winapi::um::tlhelp32::MODULEENTRY32;
+use winapi::um::tlhelp32::{MODULEENTRY32, THREADENTRY32};
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
@@ -62,26 +62,28 @@ impl Process {
         Snapshot::from_pid(self.pid()?, flags)
     }
 
-    // FIXME: This returns the first thread of many. Maybe turn it into an iterator?
-    pub fn main_thread(
+    pub fn threads(
         &self,
         access: ThreadAccess,
         inherit_handle: bool,
-    ) -> Result<Option<Thread>, Error> {
+    ) -> Result<impl std::iter::Iterator<Item = Result<Thread, Error>>, Error> {
         let snapshot = self.snapshot(SnapshotFlags::TH32CS_SNAPTHREAD)?;
         let pid = self.pid()?;
+        let threads = snapshot
+            .thread_entries()
+            .filter_map(move |thread_entry: THREADENTRY32| {
+                if pid == thread_entry.th32OwnerProcessID {
+                    Some(Thread::from_id(
+                        thread_entry.th32ThreadID,
+                        access,
+                        inherit_handle,
+                    ))
+                } else {
+                    None
+                }
+            });
 
-        for thread_entry in snapshot.thread_entries() {
-            if pid == thread_entry.th32OwnerProcessID {
-                return Ok(Some(Thread::from_id(
-                    thread_entry.th32ThreadID,
-                    access,
-                    inherit_handle,
-                )?));
-            }
-        }
-
-        Ok(None)
+        Ok(threads)
     }
 
     pub fn write_memory(&self, data: &[u8], address: usize) -> Result<usize, Error> {
@@ -201,6 +203,7 @@ impl Process {
             })
             .next();
 
+        // FIXME
         if entry.is_none() {
             Ok(None)
         } else {
