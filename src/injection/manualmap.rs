@@ -128,8 +128,8 @@ impl Injector for ManualMapInjector {
                 None => Library::load_external(pid, &module_name)?,
             };
 
-            for (&va, import) in descriptor.iat()?.zip(descriptor.int()?) {
-                let va = va as usize;
+            let mut thunk = descriptor.image().FirstThunk as usize;
+            for import in descriptor.int()? {
                 let import = import?;
 
                 let import_address = match import {
@@ -137,12 +137,12 @@ impl Injector for ManualMapInjector {
                         let proc_addr = module.proc_address(name.to_str()?)? as usize;
 
                         println!(
-                            "Import {}:{} at {:x} written to va {:x} (abs: {:x})",
+                            "Import {}:{} at {:x} written to {:x} (abs: {:x})",
                             module_name,
                             name,
                             proc_addr,
-                            va,
-                            image_base + va,
+                            thunk,
+                            image_base + thunk,
                         );
 
                         Ok(proc_addr)
@@ -152,7 +152,8 @@ impl Injector for ManualMapInjector {
                     )),
                 }?;
 
-                image_mem.write_memory(&import_address.to_ne_bytes(), va)?;
+                image_mem.write_memory(&import_address.to_ne_bytes(), thunk)?;
+                thunk += PTR_SIZE;
             }
         }
 
