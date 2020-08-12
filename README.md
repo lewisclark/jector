@@ -33,4 +33,4 @@ Jector allocates a buffer inside the target process and loads the chosen dynamic
 - [ ] Disallow the same library from being loaded more than once
 - [ ] Erase PE header
 - [x] Do base relocation outside of the loader routine
-- [ ] Resolve imports outside of the loader routine
+- [x] Resolve imports outside of the loader routine
