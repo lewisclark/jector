@@ -408,12 +408,15 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     let loader_info = &*(param as *const LoaderInfo);
 
     // Fix SEH
-    // TODO: Check ret value
-    (loader_info.rtl_add_function_table)(
+    let rtladdfunctableret = (loader_info.rtl_add_function_table)(
         loader_info.exception_fn_table,
         loader_info.exception_fn_count,
         loader_info.image_base as u64,
     );
+
+    if rtladdfunctableret == 0 {
+        return 10;
+    }
 
     if loader_info.optional_header.AddressOfEntryPoint != 0 {
         let entry_point_addr =
@@ -425,7 +428,7 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
             0 as LPVOID,
         )
     } else {
-        30
+        20
     }
 }
 
