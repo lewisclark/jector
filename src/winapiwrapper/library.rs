@@ -89,6 +89,10 @@ impl Library {
         }
     }
 
+    pub fn handle(&self) -> HMODULE {
+        self.handle
+    }
+
     pub fn proc_address(&self, proc_name: &str) -> Result<*const (), Error> {
         match self.is_external {
             true => self.proc_address_external(proc_name),
@@ -202,7 +206,7 @@ impl Library {
         }
     }
 
-    fn info(&self) -> Result<MODULEINFO, Error> {
+    pub fn info(&self) -> Result<MODULEINFO, Error> {
         let process = Process::from_pid(
             self.pid_owning,
             ProcessAccess::PROCESS_QUERY_INFORMATION | ProcessAccess::PROCESS_VM_READ,
