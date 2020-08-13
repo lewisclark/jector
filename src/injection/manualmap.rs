@@ -9,6 +9,7 @@ use crate::winapiwrapper::thread::{self, Thread, TEB};
 use crate::winapiwrapper::threadaccess::ThreadAccess;
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
+use dynasmrt::{dynasm, DynasmApi};
 use field_offset::offset_of;
 use pelite::pe64::imports::Import::{ByName, ByOrdinal};
 use pelite::pe64::{Pe, PeFile};
@@ -29,6 +30,12 @@ const MAX_TLS_INDEX: usize = 1088;
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
 type FnRtlAddFunctionTable = unsafe extern "system" fn(PRUNTIME_FUNCTION, u32, u64) -> u8;
+
+#[repr(C)]
+struct LDR_DATA_TABLE_ENTRY_BASE {
+    pad: [u8; 0x30],
+    dll_base: usize,
+}
 
 pub struct ManualMapInjector {}
 
@@ -170,117 +177,89 @@ impl Injector for ManualMapInjector {
         }
 
         // Initialize static TLS
-        // TODO: Call the callbacks
-        let tls_dir = match pe.tls() {
-            Ok(tls) => Some(Ok(tls)),
-            Err(pelite::Error::Null) => None, // PE doesn't have a TLS directory
-            Err(e) => Some(Err(e)),
-        };
+        {
+            let ntdll = Library::load_internal("ntdll.dll")?;
+            let ntdll_info = ntdll.info()?;
+            let data = unsafe {
+                std::slice::from_raw_parts(
+                    ntdll.handle() as *const u8,
+                    ntdll_info.SizeOfImage as usize,
+                )
+            };
 
-        if let Some(tls_dir) = tls_dir {
-            let tls_dir = tls_dir?;
-            let tls_dir_image = tls_dir.image();
-            let tls_raw_data_size =
-                (tls_dir_image.EndAddressOfRawData - tls_dir_image.StartAddressOfRawData) as usize;
+            // Credit to Blackbone for the signature and offset
+            let matches = patternscan::scan(data, "74 33 44 8d 43 9")?;
+            let ldrphandletlsdata = match matches.first() {
+                Some(n) => Ok(n),
+                None => Err(Error::new(String::from(
+                    "Failed to find function ntdll::LdrpHandleTlsData",
+                ))),
+            }? - 0x46
+                + ntdll.handle() as usize;
 
-            let mut tls_data_mem = VirtualMem::alloc(
+            let ldr_data = LDR_DATA_TABLE_ENTRY_BASE {
+                pad: [0; 0x30],
+                dll_base: image_base,
+            };
+
+            let stub_data = VirtualMem::alloc(
                 &process,
                 0,
-                tls_raw_data_size,
+                mem::size_of::<LDR_DATA_TABLE_ENTRY_BASE>(),
                 AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
                 ProtectFlag::PAGE_READWRITE,
             )?;
 
-            tls_data_mem.set_free_on_drop(false);
-
-            println!(
-                "Allocated TLS buffer at {:x} with size {:X}",
-                tls_data_mem.address() as usize,
-                tls_data_mem.size(),
-            );
-
-            tls_data_mem.write_memory(tls_dir.raw_data()?, 0)?;
-
-            // TODO: Make ThreadAccess more restricted
-            let thread = match process
-                .threads(ThreadAccess::THREAD_ALL_ACCESS, false)?
-                .next()
-            {
-                Some(thread) => Ok(thread?),
-                None => Err(Error::new(
-                    "Failed to obtain a thread handle from the target process".to_string(),
-                )),
-            }?;
-
-            let teb = thread.teb()? as usize;
-            let tlsp_offset = offset_of!(TEB => ThreadLocalStoragePointer).get_byte_offset();
-
-            // Obtain the TLS pointer from TEB
-            let mut tls_ptr = {
-                let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
-                process.read_memory(&mut buf, teb + tlsp_offset)?;
-
-                usize::from_ne_bytes(buf)
+            let ldr_data_bytes = unsafe {
+                slice::from_raw_parts(
+                    &ldr_data as *const LDR_DATA_TABLE_ENTRY_BASE as *const u8,
+                    mem::size_of::<LDR_DATA_TABLE_ENTRY_BASE>(),
+                )
             };
 
-            // Allocate a buffer for ThreadLocalStoragePointer because it's null
-            if tls_ptr == 0 {
-                let mut tls_array = VirtualMem::alloc(
-                    &process,
-                    0,
-                    MAX_TLS_INDEX * PTR_SIZE,
-                    AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
-                    ProtectFlag::PAGE_READWRITE,
-                )?;
+            stub_data.write_memory(ldr_data_bytes, 0)?;
 
-                tls_array.set_free_on_drop(false);
-                tls_ptr = tls_array.address();
-                process.write_memory(&tls_ptr.to_ne_bytes(), teb + tlsp_offset)?;
-
-                println!("Allocated a buffer for ThreadLocalStoragePointer because it was null");
-            }
-
-            println!("TLS array -> {:x}", tls_ptr);
-
-            // Find a usable TLS index
-            let tls_index = {
-                let mut tls_index = usize::max_value();
-                for index in 0..MAX_TLS_INDEX {
-                    let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
-                    process.read_memory(&mut buf, tls_ptr + (index * PTR_SIZE))?;
-
-                    if usize::from_ne_bytes(buf) == 0 {
-                        tls_index = index;
-                        break;
-                    }
-                }
-
-                if tls_index != usize::max_value() {
-                    Ok(tls_index)
-                } else {
-                    Err(Error::new("Failed to obtain usable TLS index".to_string()))
-                }
-            }?;
-
-            // Calculate the thread's TLS memory block location
-            let tls_index_ptr = tls_ptr + (tls_index * PTR_SIZE);
-
-            println!(
-                "Injector thread TLS index -> {} which indexes to {:x}",
-                tls_index, tls_index_ptr
+            let mut assembler = dynasmrt::x64::Assembler::new()?;
+            dynasm!(assembler
+                ; .arch x64
+                ; mov rax, QWORD ldrphandletlsdata as _
+                ; mov rcx, QWORD stub_data.address() as _
+                ; call rax
+                ; ret
             );
+            assembler.commit()?;
+            let stub = assembler.finalize().unwrap();
 
-            // We must add image delta because AddressOfIndex relies on base relocation
-            let address_of_index = tls_dir_image.AddressOfIndex as usize + image_delta;
-            // Write TLS index to TLS directory AddressOfIndex
-            process.write_memory(&tls_index.to_ne_bytes(), address_of_index)?;
+            let stub_mem = VirtualMem::alloc(
+                &process,
+                0,
+                stub.size(),
+                AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
+                ProtectFlag::PAGE_EXECUTE_READWRITE,
+            )?;
 
-            println!("AddressOfIndex -> {:x}", address_of_index);
+            stub_mem.write_memory(&stub, 0)?;
 
-            // Write our TLS memory chunk to the TLS pointer based on index
-            process.write_memory(&tls_data_mem.address().to_ne_bytes(), tls_index_ptr)?;
-        } else {
-            println!("Skipping TLS initialization because the PE doesn't have a TLS directory");
+            let stub_fn =
+                unsafe { mem::transmute::<usize, thread::StartRoutine>(stub_mem.address()) };
+
+            let thr = Thread::spawn_remote(
+                &process,
+                None,
+                None,
+                stub_fn,
+                None,
+                ThreadCreationFlags::IMMEDIATE,
+                None,
+            )?;
+
+            thr.wait(10000)?;
+
+            if thr.exit_code()? != 0 {
+                return Err(Box::new(Error::new(String::from(
+                    "LdrpHandleTlsData failed",
+                ))));
+            }
         }
 
         // Set up SEH for loader
