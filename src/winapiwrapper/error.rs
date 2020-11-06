@@ -6,7 +6,6 @@ fn get_last_error() -> u32 {
     unsafe { GetLastError() }
 }
 
-#[derive(Debug)]
 pub struct Error {
     err: String,
 }
@@ -19,7 +18,13 @@ impl Error {
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}\nlast error: {}", self.err, get_last_error())
+        write!(f, "{}, last error: {}", self.err, get_last_error())
+    }
+}
+
+impl fmt::Debug for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
     }
 }
 
