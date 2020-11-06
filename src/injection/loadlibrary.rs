@@ -107,7 +107,7 @@ impl LoadLibraryInjector {
             usize::from_ne_bytes(buf)
         };
 
-        if thr.exit_code()? == 0 {
+        if thr.exit_code()? == 0 && handle != 0 {
             Ok(handle)
         } else {
             Err(Box::new(Error::new(
