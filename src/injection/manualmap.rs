@@ -99,7 +99,7 @@ impl Injector for ManualMapInjector {
 
             println!(
                 "Section {} -> {:x} with size {:x}",
-                section.Name.to_str()?,
+                section.name().unwrap(),
                 image_base.wrapping_add(section.VirtualAddress as usize),
                 section.VirtualSize,
             );
@@ -311,7 +311,7 @@ impl Injector for ManualMapInjector {
 
             println!(
                 "Set memory protection for {} to {:?} (was {:?})",
-                sh.Name,
+                sh.name().unwrap(),
                 protect,
                 ProtectFlag::from_bits_truncate(old_protect)
             );
