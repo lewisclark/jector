@@ -59,9 +59,10 @@ impl LoadLibraryInjector {
             ; .arch x64
             ; mov r8, QWORD loadlibrary as _                        // Move LoadLibraryA into r8
             ; mov rcx, QWORD (buffer.address() + PTR_SIZE) as _     // Move library name to rcx
-            ; sub rsp, 0x20                                         // Allocate 32 bytes of shadow space
+            ; sub rsp, 40                                         // Allocate 32 bytes of shadow space
+            // Had to add 8 bytes to it because a movaps ins was crashing because of misalignment
             ; call r8                                               // Call LoadLibraryA
-            ; add rsp, 0x20                                         // Reclaim shadow space
+            ; add rsp, 40                                         // Reclaim shadow space
             ; mov rcx, QWORD buffer.address() as _                  // Move buffer address (handle dest)
             ; mov [rcx], rax                                        // Put returned handle in handle dest
             ; xor rax, rax                                          // set rax to = 0 as ret val
@@ -79,7 +80,7 @@ impl LoadLibraryInjector {
             ProtectFlag::PAGE_EXECUTE_READWRITE,
         )?;
 
-        // Write file path to buffer
+        // Write stub to buffer
         stub_buffer.write_memory(&stub, 0)?;
 
         // Transmute dynamic asm to a function pointer
