@@ -203,12 +203,10 @@ impl Process {
             })
             .next();
 
-        // FIXME
-        if entry.is_none() {
-            Ok(None)
-        } else {
-            Ok(Some(entry.unwrap()?))
-        }
+        Ok(match entry {
+            Some(entry) => Some(entry?),
+            None => None,
+        })
     }
 }
 
