@@ -5,12 +5,10 @@ use crate::winapiwrapper::library::Library;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
-use crate::winapiwrapper::thread::{self, Thread, TEB};
-use crate::winapiwrapper::threadaccess::ThreadAccess;
+use crate::winapiwrapper::thread::{self, Thread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use dynasmrt::{dynasm, DynasmApi};
-use field_offset::offset_of;
 use pelite::pe64::imports::Import::{ByName, ByOrdinal};
 use pelite::pe64::{Pe, PeFile};
 use std::error;
@@ -26,7 +24,6 @@ use winapi::um::winnt::{
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
-const MAX_TLS_INDEX: usize = 1088;
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
 type FnRtlAddFunctionTable = unsafe extern "system" fn(PRUNTIME_FUNCTION, u32, u64) -> u8;
