@@ -121,10 +121,17 @@ impl LoadLibraryInjector {
 impl Injector for LoadLibraryInjector {
     fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
         // Determine file path for library
-        // TODO: Ensure file_path length does not exceed (MAX_PATH - 1) nul byte
         // TODO: Randomize image file name
         let mut file_path = env::temp_dir();
         file_path.push("image.dll");
+
+        if file_path.as_os_str().len() >= (MAX_PATH - 1) {
+            // -1 for null byte
+            return Err(Box::new(Error::new(
+                "File path to target dll exceeds MAX_PATH".to_string(),
+            )));
+        }
+
         let file_path = file_path.as_path();
 
         // Write the file to disk so that LoadLibraryA can use it
