@@ -10,6 +10,8 @@ use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use dynasmrt::{dynasm, DynasmApi};
 use pelite::pe64::PeFile;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use std::env;
 use std::ffi::CString;
 use std::fs::{self, File};
@@ -121,9 +123,16 @@ impl LoadLibraryInjector {
 impl Injector for LoadLibraryInjector {
     fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
         // Determine file path for library
-        // TODO: Randomize image file name
+        let mut file_name: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(16)
+            .collect();
+        file_name.push_str(".dll");
+
+        println!("file_name: {}", &file_name);
+
         let mut file_path = env::temp_dir();
-        file_path.push("image.dll");
+        file_path.push(&file_name);
 
         if file_path.as_os_str().len() >= (MAX_PATH - 1) {
             // -1 for null byte
