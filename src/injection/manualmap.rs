@@ -1,7 +1,7 @@
 use super::injector::Injector;
 use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
-use crate::winapiwrapper::library::Library;
+use crate::winapiwrapper::module::Module;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
@@ -140,8 +140,8 @@ impl Injector for ManualMapInjector {
             let module_entry = process.module_entry_by_name(module_name)?;
 
             let module = match module_entry {
-                Some(entry) => unsafe { Library::from_handle(entry.hModule, pid, true) },
-                None => Library::load_external(pid, &module_name)?,
+                Some(entry) => unsafe { Module::from_handle(entry.hModule, pid, true) },
+                None => Module::load_external(pid, &module_name)?,
             };
 
             let mut thunk = descriptor.image().FirstThunk as usize;
@@ -175,7 +175,7 @@ impl Injector for ManualMapInjector {
 
         // Initialize static TLS
         {
-            let ntdll = Library::load_internal("ntdll.dll")?;
+            let ntdll = Module::load_internal("ntdll.dll")?;
             let ntdll_info = ntdll.info()?;
             let data = unsafe {
                 std::slice::from_raw_parts(
@@ -331,7 +331,7 @@ impl Injector for ManualMapInjector {
         );
 
         // Construct LoaderInfo
-        let lib_kernel32 = Library::load_internal("kernel32.dll")?;
+        let lib_kernel32 = Module::load_internal("kernel32.dll")?;
         let loader_info = LoaderInfo {
             image_base,
             optional_header: *pe.optional_header(),

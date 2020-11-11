@@ -13,15 +13,13 @@ use winapi::shared::minwindef::{HMODULE, LPVOID};
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
 use winapi::um::psapi::{GetModuleInformation, MODULEINFO};
 
-// TODO: Rename to Module
-
-pub struct Library {
+pub struct Module {
     handle: HMODULE,
     pid_owning: u32,
     is_external: bool,
 }
 
-impl Library {
+impl Module {
     pub fn load_internal(name: &str) -> Result<Self, Error> {
         let name = match CString::new(name) {
             Ok(cstr) => Ok(cstr),
@@ -127,7 +125,7 @@ impl Library {
         buf.resize(info.SizeOfImage as usize, 0);
         process.read_memory(buf.as_mut_slice(), info.lpBaseOfDll as usize)?;
 
-        // TODO: Cache pe inside the Library struct - running it for every proc_address is expensive
+        // TODO: Cache pe inside the Module struct - running it for every proc_address is expensive
         let pe = match PeView::from_bytes(buf.as_slice()) {
             Ok(pe) => Ok(pe),
             Err(e) => Err(Error::new(format!("PeView::from_bytes failed: {}", e))),

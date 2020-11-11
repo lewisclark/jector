@@ -1,6 +1,6 @@
 use super::error::Error;
 use super::handleowner::HandleOwner;
-use super::library::Library;
+use super::module::Module;
 use super::process::Process;
 use super::securityattributes::SecurityAttributes;
 use super::threadaccess::ThreadAccess;
@@ -134,7 +134,7 @@ impl Thread {
     pub fn query_information(&self) -> Result<THREAD_BASIC_INFORMATION, Error> {
         let nt_query_information_thread = unsafe {
             transmute::<*const (), NtQueryInformationThreadFn>(
-                Library::load_internal("ntdll.dll")?.proc_address("NtQueryInformationThread")?,
+                Module::load_internal("ntdll.dll")?.proc_address("NtQueryInformationThread")?,
             )
         };
 

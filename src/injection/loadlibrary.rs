@@ -1,7 +1,7 @@
 use super::injector::Injector;
 use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
-use crate::winapiwrapper::library::Library;
+use crate::winapiwrapper::module::Module;
 use crate::winapiwrapper::process::Process;
 use crate::winapiwrapper::processaccess::ProcessAccess;
 use crate::winapiwrapper::protectflag::ProtectFlag;
@@ -53,7 +53,7 @@ impl LoadLibraryInjector {
 
         // Obtain the address of LoadLibrary
         // TODO: Use Library::load_external when it is stable with proc_address_external
-        let libkernel32 = Library::load_internal("kernel32.dll")?;
+        let libkernel32 = Module::load_internal("kernel32.dll")?;
         let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
         let mut assembler = dynasmrt::x64::Assembler::new()?;
