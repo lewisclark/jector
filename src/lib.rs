@@ -10,6 +10,7 @@ mod winapiwrapper;
 
 use error::Error;
 pub use injection::injectionmethod::InjectionMethod;
+use winapiwrapper::window::Window;
 
 pub fn inject_pid(
     pid: u32,
@@ -22,4 +23,21 @@ pub fn inject_pid(
     }
 
     injection::inject(pid, pe, dll, method)
+}
+
+pub fn inject_window(
+    window_name: &str,
+    dll: &[u8],
+    method: InjectionMethod,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    let window = Window::find(window_name);
+
+    if let Some(window) = window {
+        inject_pid(window.pid(), dll, method)
+    } else {
+        Err(Box::new(Error::new(format!(
+            "Failed to find window with name '{}'",
+            window_name
+        ))))
+    }
 }

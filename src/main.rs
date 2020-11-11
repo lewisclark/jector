@@ -15,6 +15,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("window")
+                .short("w")
+                .long("window")
+                .value_name("WINDOW")
+                .help("The name of the window to inject to")
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("file")
                 .short("f")
                 .long("file")
@@ -41,10 +49,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         buf
     };
 
-    let pid = matches.value_of("pid").expect("No PID given").parse()?;
     let method = matches.value_of("method").unwrap().parse()?;
 
-    jector::inject_pid(pid, &file_bytes, method)?;
+    if let Some(pid) = matches.value_of("pid") {
+        jector::inject_pid(pid.parse()?, &file_bytes, method)?;
+    } else if let Some(window_name) = matches.value_of("window") {
+        jector::inject_window(window_name, &file_bytes, method)?;
+    } else {
+        panic!("Expected either -p or -w arg");
+    };
 
     Ok(())
 }
