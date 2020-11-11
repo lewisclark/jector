@@ -30,7 +30,7 @@ pub fn inject_window(
     dll: &[u8],
     method: InjectionMethod,
 ) -> Result<usize, Box<dyn std::error::Error>> {
-    let window = Window::find(window_name);
+    let window = Window::find(window_name)?;
 
     if let Some(window) = window {
         inject_pid(window.pid(), dll, method)
