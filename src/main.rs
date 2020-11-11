@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .short("w")
                 .long("window")
                 .value_name("WINDOW")
-                .help("The name of the window to inject to")
+                .help("The name of the window to inject into")
                 .takes_value(true),
         )
         .arg(

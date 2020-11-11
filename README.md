@@ -4,7 +4,20 @@ Jector is a work-in-progress Windows tool that injects library files (.dll) into
 
 ## Usage
 ### Executable
-Jector must be invoked via the command line with 3 arguments. This can be done like so: `./jector <pid> <path to dll> <injection method>`. To view a list of available injection methods, run jector without any arguments.
+```
+USAGE:
+    jector.exe [OPTIONS] --file <DLL FILE>
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+OPTIONS:
+    -f, --file <DLL FILE>                   The DLL file to inject
+    -m, --method <LOADLIBRARY/MANUALMAP>    The injection method to use [default: loadlibrary]
+    -p, --pid <PID>                         The PID of the process to inject into
+    -w, --window <WINDOW>                   The name of the window to inject into
+```
 
 ### Library
 Jector can also be used as a library for usage in other projects.
