@@ -13,3 +13,4 @@ pub mod thread;
 pub mod threadaccess;
 pub mod threadcreationflags;
 pub mod virtualmem;
+pub mod window;
