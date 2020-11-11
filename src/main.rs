@@ -1,4 +1,4 @@
-use clap::{App, Arg};
+use clap::{App, Arg, ArgGroup};
 use std::fs::File;
 use std::io::Read;
 
@@ -6,6 +6,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("jector")
         .version("1.0")
         .author("Lewis Clark")
+        .group(
+            ArgGroup::with_name("target")
+                .arg("pid")
+                .arg("window")
+                .required(true),
+        )
         .arg(
             Arg::with_name("pid")
                 .short("p")
