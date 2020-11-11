@@ -6,7 +6,7 @@ Jector is a work-in-progress Windows tool that injects library files (.dll) into
 ### Executable
 ```
 USAGE:
-    jector.exe [OPTIONS] --file <DLL FILE>
+    jector.exe [OPTIONS] --file <DLL FILE> <--pid <PID>|--window <WINDOW>>
 
 FLAGS:
     -h, --help       Prints help information
