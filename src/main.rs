@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arg::with_name("pid")
                 .short("p")
                 .long("pid")
-                .value_name("PID")
+                .value_name("pid")
                 .help("The PID of the process to inject into")
                 .takes_value(true),
         )
@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arg::with_name("window")
                 .short("w")
                 .long("window")
-                .value_name("WINDOW")
+                .value_name("window_name")
                 .help("The name of the window to inject into")
                 .takes_value(true),
         )
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arg::with_name("file")
                 .short("f")
                 .long("file")
-                .value_name("DLL FILE")
+                .value_name("dll_file_path")
                 .help("The DLL file to inject")
                 .takes_value(true)
                 .required(true),
@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arg::with_name("method")
                 .short("m")
                 .long("method")
-                .value_name("LOADLIBRARY/MANUALMAP")
+                .value_name("loadlibrary/manualmap")
                 .help("The injection method to use")
                 .takes_value(true)
                 .default_value("loadlibrary"),

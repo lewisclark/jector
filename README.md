@@ -6,17 +6,17 @@ Jector is a work-in-progress Windows tool that injects library files (.dll) into
 ### Executable
 ```
 USAGE:
-    jector.exe [OPTIONS] --file <DLL FILE> <--pid <PID>|--window <WINDOW>>
+    jector.exe [OPTIONS] --file <dll_file_path> <--pid <pid>|--window <window_name>>
 
 FLAGS:
     -h, --help       Prints help information
     -V, --version    Prints version information
 
 OPTIONS:
-    -f, --file <DLL FILE>                   The DLL file to inject
-    -m, --method <LOADLIBRARY/MANUALMAP>    The injection method to use [default: loadlibrary]
-    -p, --pid <PID>                         The PID of the process to inject into
-    -w, --window <WINDOW>                   The name of the window to inject into
+    -f, --file <dll_file_path>              The DLL file to inject
+    -m, --method <loadlibrary/manualmap>    The injection method to use [default: loadlibrary]
+    -p, --pid <pid>                         The PID of the process to inject into
+    -w, --window <window_name>              The name of the window to inject into
 ```
 
 ### Library
