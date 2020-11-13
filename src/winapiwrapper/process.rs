@@ -11,7 +11,6 @@ use std::ops::Drop;
 use std::path::Path;
 use winapi::ctypes::c_void;
 use winapi::shared::minwindef::LPVOID;
-use winapi::um::handleapi::CloseHandle;
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
 use winapi::um::tlhelp32::{MODULEENTRY32, THREADENTRY32};
@@ -34,16 +33,6 @@ impl Process {
 
     pub fn from_current() -> Self {
         unsafe { Process::from_handle(GetCurrentProcess()) }
-    }
-
-    pub fn close(&self) -> Result<(), Error> {
-        let ret = unsafe { CloseHandle(self.handle) };
-
-        if ret == 0 {
-            Err(Error::new("CloseHandle failed".to_string()))
-        } else {
-            Ok(())
-        }
     }
 
     pub fn pid(&self) -> Result<u32, Error> {
@@ -210,10 +199,7 @@ impl Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
-        // -1 is the pseudo handle for the current process and need not be closed
-        if self.handle as isize != -1 {
-            self.close().unwrap();
-        }
+        self.close_handle().unwrap()
     }
 }
 
@@ -224,5 +210,10 @@ impl HandleOwner for Process {
 
     fn handle(&self) -> HANDLE {
         self.handle
+    }
+
+    fn is_handle_closable(&self) -> bool {
+        // -1 is the pseudo handle for the current process and need not be closed
+        self.handle as isize != -1
     }
 }

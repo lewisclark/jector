@@ -4,7 +4,7 @@ use super::snapshotflags::SnapshotFlags;
 use std::mem::size_of;
 use std::ptr;
 use winapi::shared::minwindef::{BYTE, HMODULE};
-use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
+use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::tlhelp32::CreateToolhelp32Snapshot;
 use winapi::um::tlhelp32::{
     Module32First, Module32Next, Thread32First, Thread32Next, MODULEENTRY32, THREADENTRY32,
@@ -28,16 +28,6 @@ impl Snapshot {
         }
     }
 
-    pub fn close(&self) -> Result<(), Error> {
-        let ret = unsafe { CloseHandle(self.handle) };
-
-        if ret != 0 {
-            Ok(())
-        } else {
-            Err(Error::new("CloseHandle returned NULL".to_string()))
-        }
-    }
-
     pub fn thread_entries(self) -> SnapshotThreadEntries {
         SnapshotThreadEntries::new(self)
     }
@@ -55,11 +45,15 @@ impl HandleOwner for Snapshot {
     fn handle(&self) -> HANDLE {
         self.handle
     }
+
+    fn is_handle_closable(&self) -> bool {
+        true
+    }
 }
 
 impl Drop for Snapshot {
     fn drop(&mut self) {
-        self.close().unwrap();
+        self.close_handle().unwrap();
     }
 }
 

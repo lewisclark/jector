@@ -1,6 +1,25 @@
+use super::error::Error;
+use winapi::um::handleapi::CloseHandle;
 use winapi::um::winnt::HANDLE;
 
 pub trait HandleOwner {
     unsafe fn from_handle(handle: HANDLE) -> Self;
+
     fn handle(&self) -> HANDLE;
+
+    fn is_handle_closable(&self) -> bool;
+
+    fn close_handle(&self) -> Result<(), Error> {
+        if !self.is_handle_closable() {
+            return Ok(());
+        }
+
+        let ret = unsafe { CloseHandle(self.handle()) };
+
+        if ret != 0 {
+            Ok(())
+        } else {
+            Err(Error::new("CloseHandle returned NULL".to_string()))
+        }
+    }
 }

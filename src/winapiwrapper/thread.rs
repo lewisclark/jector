@@ -44,12 +44,12 @@ pub struct THREAD_BASIC_INFORMATION {
 #[repr(C)]
 #[allow(non_snake_case)]
 pub struct TEB {
-    // FIXME: Struct isn't filled out entirely
     pub Tib: NT_TIB,
     pub EnvironmentPointer: PVOID,
     pub Cid: CLIENT_ID,
     pub ActiveRpcInfo: PVOID,
     pub ThreadLocalStoragePointer: PVOID,
+    // This struct isn't entirely filled out
 }
 
 pub struct Thread {
@@ -198,5 +198,9 @@ impl HandleOwner for Thread {
 
     fn handle(&self) -> HANDLE {
         self.handle
+    }
+
+    fn is_handle_closable(&self) -> bool {
+        false
     }
 }
