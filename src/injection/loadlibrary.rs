@@ -62,7 +62,7 @@ impl LoadLibraryInjector {
             ; mov r8, QWORD loadlibrary as _                        // Move LoadLibraryA into r8
             ; mov rcx, QWORD (buffer.address() + PTR_SIZE) as _     // Move library name to rcx
             ; sub rsp, 40                                         // Allocate 32 bytes of shadow space
-            // Had to add 8 bytes to it because a movaps ins was crashing because of misalignment
+            // Had to add 8 bytes to it because a movaps ins was crashing because of stack misalignment
             ; call r8                                               // Call LoadLibraryA
             ; add rsp, 40                                         // Reclaim shadow space
             ; mov rcx, QWORD buffer.address() as _                  // Move buffer address (handle dest)
@@ -128,8 +128,6 @@ impl Injector for LoadLibraryInjector {
             .take(16)
             .collect();
         file_name.push_str(".dll");
-
-        println!("file_name: {}", &file_name);
 
         let mut file_path = env::temp_dir();
         file_path.push(&file_name);
