@@ -52,13 +52,13 @@ impl Window {
     }
 
     pub fn name(&self) -> CString {
-        const buf_len: usize = 0x100;
+        const BUF_LEN: usize = 0x100;
 
         let mut buf = Vec::new();
-        buf.resize(buf_len, 0);
+        buf.resize(BUF_LEN, 0);
 
         let copied =
-            unsafe { GetWindowTextA(self.handle, buf.as_mut_ptr() as *mut CHAR, buf_len as i32) };
+            unsafe { GetWindowTextA(self.handle, buf.as_mut_ptr() as *mut CHAR, BUF_LEN as i32) };
 
         buf.resize(copied as usize, 0);
 
