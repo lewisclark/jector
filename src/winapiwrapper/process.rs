@@ -4,8 +4,6 @@ use super::processaccess::ProcessAccess;
 use super::protectflag::ProtectFlag;
 use super::snapshot::Snapshot;
 use super::snapshotflags::SnapshotFlags;
-use super::thread::Thread;
-use super::threadaccess::ThreadAccess;
 use std::ffi::CStr;
 use std::ops::Drop;
 use std::path::Path;
@@ -13,7 +11,7 @@ use winapi::ctypes::c_void;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
-use winapi::um::tlhelp32::{MODULEENTRY32, THREADENTRY32};
+use winapi::um::tlhelp32::MODULEENTRY32;
 use winapi::um::winnt::HANDLE;
 
 pub struct Process {
@@ -47,30 +45,6 @@ impl Process {
 
     pub fn snapshot(&self, flags: SnapshotFlags) -> Result<Snapshot, Error> {
         Snapshot::from_pid(self.pid()?, flags)
-    }
-
-    pub fn threads(
-        &self,
-        access: ThreadAccess,
-        inherit_handle: bool,
-    ) -> Result<impl std::iter::Iterator<Item = Result<Thread, Error>>, Error> {
-        let snapshot = self.snapshot(SnapshotFlags::TH32CS_SNAPTHREAD)?;
-        let pid = self.pid()?;
-        let threads = snapshot
-            .thread_entries()
-            .filter_map(move |thread_entry: THREADENTRY32| {
-                if pid == thread_entry.th32OwnerProcessID {
-                    Some(Thread::from_id(
-                        thread_entry.th32ThreadID,
-                        access,
-                        inherit_handle,
-                    ))
-                } else {
-                    None
-                }
-            });
-
-        Ok(threads)
     }
 
     pub fn write_memory(&self, data: &[u8], address: usize) -> Result<usize, Error> {

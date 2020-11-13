@@ -28,10 +28,6 @@ impl Snapshot {
         }
     }
 
-    pub fn thread_entries(self) -> SnapshotThreadEntries {
-        SnapshotThreadEntries::new(self)
-    }
-
     pub fn module_entries(self, pid: u32) -> SnapshotModuleEntries {
         SnapshotModuleEntries::new(self, pid)
     }
@@ -61,15 +57,6 @@ impl Drop for Snapshot {
 pub struct SnapshotThreadEntries {
     snapshot: Snapshot,
     is_first: bool,
-}
-
-impl SnapshotThreadEntries {
-    pub fn new(snapshot: Snapshot) -> Self {
-        Self {
-            snapshot,
-            is_first: true,
-        }
-    }
 }
 
 impl Iterator for SnapshotThreadEntries {
