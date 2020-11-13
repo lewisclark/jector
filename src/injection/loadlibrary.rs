@@ -14,7 +14,7 @@ use rand::distributions::Alphanumeric;
 use rand::Rng;
 use std::env;
 use std::ffi::CString;
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::Write;
 use std::mem::size_of;
 use std::mem::transmute;
@@ -157,9 +157,6 @@ impl Injector for LoadLibraryInjector {
                 Box::new(Error::new("Failed to convert file path to str".to_string()))
             })?,
         );
-
-        // Clean up image file
-        fs::remove_file(file_path)?;
 
         ret
     }
