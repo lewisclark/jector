@@ -4,14 +4,12 @@ use super::snapshotflags::SnapshotFlags;
 use std::mem::size_of;
 use std::ptr;
 use winapi::shared::minwindef::{BYTE, HMODULE};
-use winapi::um::handleapi::INVALID_HANDLE_VALUE;
+use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
 use winapi::um::tlhelp32::CreateToolhelp32Snapshot;
 use winapi::um::tlhelp32::{
     Module32First, Module32Next, Thread32First, Thread32Next, MODULEENTRY32, THREADENTRY32,
 };
 use winapi::um::winnt::HANDLE;
-
-// TODO: Clean up snapshot with CloseHandle
 
 pub struct Snapshot {
     handle: HANDLE,
@@ -27,6 +25,16 @@ impl Snapshot {
             Err(Error::new(
                 "CreateToolhelp32Snapshot returned an invalid handle".to_string(),
             ))
+        }
+    }
+
+    pub fn close(&self) -> Result<(), Error> {
+        let ret = unsafe { CloseHandle(self.handle) };
+
+        if ret != 0 {
+            Ok(())
+        } else {
+            Err(Error::new("CloseHandle returned NULL".to_string()))
         }
     }
 
@@ -46,6 +54,12 @@ impl HandleOwner for Snapshot {
 
     fn handle(&self) -> HANDLE {
         self.handle
+    }
+}
+
+impl Drop for Snapshot {
+    fn drop(&mut self) {
+        self.close().unwrap();
     }
 }
 
