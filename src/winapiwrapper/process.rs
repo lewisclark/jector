@@ -21,8 +21,6 @@ pub struct Process {
     handle: HANDLE,
 }
 
-// TODO: Close handle on drop if opened by OpenProcess
-
 impl Process {
     pub fn from_pid(pid: u32, access: ProcessAccess, inherit: bool) -> Result<Self, Error> {
         let handle = unsafe { OpenProcess(access.bits(), inherit as i32, pid) };
@@ -212,7 +210,10 @@ impl Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
-        self.close().unwrap();
+        // -1 is the pseudo handle for the current process and need not be closed
+        if self.handle as isize != -1 {
+            self.close().unwrap();
+        }
     }
 }
 
