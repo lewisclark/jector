@@ -1,12 +1,10 @@
 use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::process::Process;
-use super::securityattributes::SecurityAttributes;
 use super::threadcreationflags::ThreadCreationFlags;
 use std::ffi::c_void;
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
-use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
 use winapi::um::processthreadsapi::{CreateRemoteThread, GetExitCodeThread};
 use winapi::um::synchapi::WaitForSingleObject;
 use winapi::um::winbase::WAIT_FAILED;
@@ -21,18 +19,12 @@ pub struct Thread {
 impl Thread {
     pub fn spawn_remote(
         process: &Process,
-        thread_attributes: Option<&SecurityAttributes>,
         stack_size: Option<usize>,
         routine: StartRoutine,
         param: Option<*mut c_void>,
         creation_flags: ThreadCreationFlags,
         thread_id: Option<&mut u32>,
     ) -> Result<Self, Error> {
-        let thread_attributes = match thread_attributes {
-            Some(att) => att,
-            None => ptr::null(),
-        } as *mut SECURITY_ATTRIBUTES;
-
         let thread_id = match thread_id {
             Some(id) => id,
             None => ptr::null(),
@@ -46,7 +38,7 @@ impl Thread {
         let handle = unsafe {
             CreateRemoteThread(
                 process.handle(),
-                thread_attributes,
+                ptr::null_mut(),
                 stack_size.unwrap_or(0),
                 Some(routine),
                 param,

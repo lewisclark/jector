@@ -243,7 +243,6 @@ impl Injector for ManualMapInjector {
             let thr = Thread::spawn_remote(
                 &process,
                 None,
-                None,
                 stub_fn,
                 None,
                 ThreadCreationFlags::IMMEDIATE,
@@ -377,7 +376,6 @@ impl Injector for ManualMapInjector {
         // Spawn a thread to execute the loader buffer in the target process
         let thread = Thread::spawn_remote(
             &process,
-            None,
             None,
             loader_mem_as_fn,
             Some(loader_mem.address() as *mut c_void),

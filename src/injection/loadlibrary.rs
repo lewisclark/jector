@@ -92,7 +92,6 @@ impl LoadLibraryInjector {
         let thr = Thread::spawn_remote(
             &process,
             None,
-            None,
             stub_fn,
             None,
             ThreadCreationFlags::IMMEDIATE,

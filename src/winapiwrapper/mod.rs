@@ -6,7 +6,6 @@ pub mod module;
 pub mod process;
 pub mod processaccess;
 pub mod protectflag;
-pub mod securityattributes;
 pub mod snapshot;
 pub mod snapshotflags;
 pub mod thread;
