@@ -314,12 +314,17 @@ impl Injector for ManualMapInjector {
             );
         }
 
+        // We estimate the size of the loader function
+        // We could place a function after the loader to calculate the
+        // actual size, but compiling in release mode doesn't guarantee
+        // that the loader_end function is placed directly after the loader function
+        let loader_size = 0x1000;
+
         // Allocate loader memory
         let loader_mem = VirtualMem::alloc(
             &process,
             0,
-            // FIXME: Size of loader computation doesn't work in release mode
-            (loader_end as usize - loader as usize) + mem::size_of::<LoaderInfo>(),
+            loader_size + mem::size_of::<LoaderInfo>(),
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_EXECUTE_READWRITE,
         )?;
@@ -355,9 +360,7 @@ impl Injector for ManualMapInjector {
         loader_mem.write_memory(loaderinfo_bytes, 0)?;
 
         // Write loader fn bytes to loader buffer
-        let loader_fn_bytes = unsafe {
-            slice::from_raw_parts(loader as *const u8, loader_end as usize - loader as usize)
-        };
+        let loader_fn_bytes = unsafe { slice::from_raw_parts(loader as *const u8, loader_size) };
 
         loader_mem.write_memory(loader_fn_bytes, loaderinfo_bytes.len())?;
 
@@ -428,5 +431,3 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
         20
     }
 }
-
-extern "system" fn loader_end() {}
