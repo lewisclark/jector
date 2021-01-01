@@ -1,14 +1,13 @@
 use super::handleowner::HandleOwner;
 use super::process::Process;
-use super::threadcreationflags::ThreadCreationFlags;
 use super::WinApiError;
 use std::ffi::c_void;
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::um::processthreadsapi::{CreateRemoteThread, GetExitCodeThread};
 use winapi::um::synchapi::WaitForSingleObject;
-use winapi::um::winbase::WAIT_FAILED;
-use winapi::um::winnt::HANDLE;
+use winapi::um::winbase::{self, WAIT_FAILED};
+use winapi::um::winnt::{self, HANDLE};
 
 pub type StartRoutine = unsafe extern "system" fn(*mut winapic_void) -> u32;
 
@@ -88,5 +87,38 @@ impl HandleOwner for Thread {
 
     fn is_handle_closable(&self) -> bool {
         false
+    }
+}
+
+// Thread security and access rights
+// https://docs.microsoft.com/en-us/windows/win32/procthread/thread-security-and-access-rights
+bitflags! {
+    pub struct ThreadAccess: u32 {
+        const DELETE = winnt::DELETE;
+        const READ_CONTROL = winnt::READ_CONTROL;
+        const SYNCHRONIZE = winnt::SYNCHRONIZE;
+        const WRITE_DAC = winnt::WRITE_DAC;
+        const WRITE_OWNER = winnt::WRITE_OWNER;
+        const THREAD_ALL_ACCESS = winnt::THREAD_ALL_ACCESS;
+        const THREAD_DIRECT_IMPERSONATION = winnt::THREAD_DIRECT_IMPERSONATION;
+        const THREAD_GET_CONTEXT = winnt::THREAD_GET_CONTEXT;
+        const THREAD_IMPERSONATE = winnt::THREAD_IMPERSONATE;
+        const THREAD_QUERY_INFORMATION = winnt::THREAD_QUERY_INFORMATION;
+        const THREAD_QUERY_LIMITED_INFORMATION = winnt::THREAD_QUERY_LIMITED_INFORMATION;
+        const THREAD_SET_CONTEXT = winnt::THREAD_SET_CONTEXT;
+        const THREAD_SET_INFORMATION = winnt::THREAD_SET_INFORMATION;
+        const THREAD_SET_LIMITED_INFORMATION = winnt::THREAD_SET_LIMITED_INFORMATION;
+        const THREAD_SET_THREAD_TOKEN = winnt::THREAD_SET_THREAD_TOKEN;
+        const THREAD_SUSPEND_RESUME = winnt::THREAD_SUSPEND_RESUME;
+        const THREAD_TERMINATE = winnt::THREAD_TERMINATE;
+    }
+}
+
+// Thread creation flags
+// https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createthread
+bitflags! {
+    pub struct ThreadCreationFlags: u32 {
+        const IMMEDIATE = 0;
+        const CREATE_SUSPENDED = winbase::CREATE_SUSPENDED;
     }
 }

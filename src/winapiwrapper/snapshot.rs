@@ -1,5 +1,4 @@
 use super::handleowner::HandleOwner;
-use super::snapshotflags::SnapshotFlags;
 use super::WinApiError;
 use std::mem::size_of;
 use std::ptr;
@@ -7,7 +6,7 @@ use winapi::shared::minwindef::{BYTE, HMODULE};
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::tlhelp32::CreateToolhelp32Snapshot;
 use winapi::um::tlhelp32::{
-    Module32First, Module32Next, Thread32First, Thread32Next, MODULEENTRY32, THREADENTRY32,
+    self, Module32First, Module32Next, Thread32First, Thread32Next, MODULEENTRY32, THREADENTRY32,
 };
 use winapi::um::winnt::HANDLE;
 
@@ -132,5 +131,19 @@ impl Iterator for SnapshotModuleEntries {
             0 => None,
             _ => Some(entry),
         }
+    }
+}
+
+// CreateToolhelp32Snapshot flags
+// https://docs.microsoft.com/en-us/windows/win32/api/tlhelp32/nf-tlhelp32-createtoolhelp32snapshot
+bitflags! {
+    pub struct SnapshotFlags: u32 {
+        const TH32CS_INHERIT = tlhelp32::TH32CS_INHERIT;
+        const TH32CS_SNAPALL = tlhelp32::TH32CS_SNAPALL;
+        const TH32CS_SNAPHEAPLIST = tlhelp32::TH32CS_SNAPHEAPLIST;
+        const TH32CS_SNAPMODULE = tlhelp32::TH32CS_SNAPMODULE;
+        const TH32CS_SNAPMODULE32 = tlhelp32::TH32CS_SNAPMODULE32;
+        const TH32CS_SNAPPROCESS = tlhelp32::TH32CS_SNAPPROCESS;
+        const TH32CS_SNAPTHREAD = tlhelp32::TH32CS_SNAPTHREAD;
     }
 }

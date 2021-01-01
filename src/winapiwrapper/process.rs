@@ -1,8 +1,6 @@
 use super::handleowner::HandleOwner;
-use super::processaccess::ProcessAccess;
-use super::protectflag::ProtectFlag;
-use super::snapshot::Snapshot;
-use super::snapshotflags::SnapshotFlags;
+use super::snapshot::{Snapshot, SnapshotFlags};
+use super::virtualmem::ProtectFlag;
 use super::WinApiError;
 use std::ffi::CStr;
 use std::ops::Drop;
@@ -12,7 +10,7 @@ use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
 use winapi::um::tlhelp32::MODULEENTRY32;
-use winapi::um::winnt::HANDLE;
+use winapi::um::winnt::{self, HANDLE};
 
 pub struct Process {
     handle: HANDLE,
@@ -187,5 +185,30 @@ impl HandleOwner for Process {
     fn is_handle_closable(&self) -> bool {
         // -1 is the pseudo handle for the current process and need not be closed
         self.handle as isize != -1
+    }
+}
+
+// ProcessAccess flags
+// https://docs.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+bitflags! {
+    pub struct ProcessAccess: u32 {
+        const DELETE = winnt::DELETE;
+        const READ_CONTROL = winnt::READ_CONTROL;
+        const SYNCHRONIZE = winnt::SYNCHRONIZE;
+        const WRITE_DAC = winnt::WRITE_DAC;
+        const WRITE_OWNER = winnt::WRITE_OWNER;
+        const PROCESS_ALL_ACCESS = winnt::PROCESS_ALL_ACCESS;
+        const PROCESS_CREATE_PROCESS = winnt::PROCESS_CREATE_PROCESS;
+        const PROCESS_CREATE_THREAD = winnt::PROCESS_CREATE_THREAD;
+        const PROCESS_DUP_HANDLE = winnt::PROCESS_DUP_HANDLE;
+        const PROCESS_QUERY_INFORMATION = winnt::PROCESS_QUERY_INFORMATION;
+        const PROCESS_QUERY_LIMITED_INFORMATION = winnt::PROCESS_QUERY_LIMITED_INFORMATION;
+        const PROCESS_SET_INFORMATION = winnt::PROCESS_SET_INFORMATION;
+        const PROCESS_SET_QUOTA = winnt::PROCESS_SET_QUOTA;
+        const PROCESS_SUSPEND_RESUME = winnt::PROCESS_SUSPEND_RESUME;
+        const PROCESS_TERMINATE = winnt::PROCESS_TERMINATE;
+        const PROCESS_VM_OPERATION = winnt::PROCESS_VM_OPERATION;
+        const PROCESS_VM_READ = winnt::PROCESS_VM_READ;
+        const PROCESS_VM_WRITE = winnt::PROCESS_VM_WRITE;
     }
 }

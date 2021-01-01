@@ -1,15 +1,8 @@
-pub mod alloctype;
-pub mod freetype;
 pub mod handleowner;
 pub mod module;
 pub mod process;
-pub mod processaccess;
-pub mod protectflag;
 pub mod snapshot;
-pub mod snapshotflags;
 pub mod thread;
-pub mod threadaccess;
-pub mod threadcreationflags;
 pub mod virtualmem;
 pub mod window;
 

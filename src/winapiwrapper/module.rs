@@ -1,6 +1,5 @@
 use super::handleowner::HandleOwner;
-use super::process::Process;
-use super::processaccess::ProcessAccess;
+use super::process::{Process, ProcessAccess};
 use super::WinApiError;
 use pelite::pe64::exports::Export::{Forward, Symbol};
 use pelite::pe64::Pe;

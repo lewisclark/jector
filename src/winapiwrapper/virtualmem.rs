@@ -1,12 +1,10 @@
-use super::alloctype::AllocType;
-use super::freetype::FreeType;
 use super::handleowner::HandleOwner;
 use super::process::Process;
-use super::protectflag::ProtectFlag;
 use super::WinApiError;
 use std::ops::Drop;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
+use winapi::um::winnt;
 
 pub struct VirtualMem<'a> {
     process: &'a Process,
@@ -111,5 +109,47 @@ impl Drop for VirtualMem<'_> {
         if self.free_on_drop {
             self.free(FreeType::MEM_RELEASE).unwrap();
         }
+    }
+}
+
+// AllocType flags
+// https://docs.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualalloc
+bitflags! {
+    pub struct AllocType: u32 {
+        const MEM_COMMIT = winnt::MEM_COMMIT;
+        const MEM_RESERVE = winnt::MEM_RESERVE;
+        const MEM_RESET = winnt::MEM_RESET;
+        const MEM_RESET_UNDO = winnt::MEM_RESET_UNDO;
+    }
+}
+
+// FreeType flags
+// https://docs.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualfreeex
+bitflags! {
+    pub struct FreeType: u32 {
+        const MEM_DECOMMIT = winnt::MEM_DECOMMIT;
+        const MEM_RELEASE = winnt::MEM_RELEASE;
+    }
+}
+
+// Memory protection flags
+// https://docs.microsoft.com/en-us/windows/win32/memory/memory-protection-constants
+bitflags! {
+    pub struct ProtectFlag: u32 {
+        const PAGE_EXECUTE = winnt::PAGE_EXECUTE;
+        const PAGE_EXECUTE_READ = winnt::PAGE_EXECUTE_READ;
+        const PAGE_EXECUTE_READWRITE = winnt::PAGE_EXECUTE_READWRITE;
+        const PAGE_EXECUTE_WRITECOPY = winnt::PAGE_EXECUTE_WRITECOPY;
+        const PAGE_NOACCESS = winnt::PAGE_NOACCESS;
+        const PAGE_READONLY = winnt::PAGE_READONLY;
+        const PAGE_READWRITE = winnt::PAGE_READWRITE;
+        const PAGE_WRITECOPY = winnt::PAGE_WRITECOPY;
+        const PAGE_TARGETS_INVALID = winnt::PAGE_TARGETS_INVALID;
+        const PAGE_TARGETS_NO_UPDATE = winnt::PAGE_TARGETS_NO_UPDATE;
+        const PAGE_GUARD = winnt::PAGE_GUARD;
+        const PAGE_NOCACHE = winnt::PAGE_NOCACHE;
+        const PAGE_WRITECOMBINE = winnt::PAGE_WRITECOMBINE;
+        const PAGE_ENCLAVE_THREAD_CONTROL = winnt::PAGE_ENCLAVE_THREAD_CONTROL;
+        const PAGE_ENCLAVE_UNVALIDATED = winnt::PAGE_ENCLAVE_UNVALIDATED;
     }
 }

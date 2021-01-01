@@ -1,11 +1,7 @@
-use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::module::Module;
-use crate::winapiwrapper::process::Process;
-use crate::winapiwrapper::processaccess::ProcessAccess;
-use crate::winapiwrapper::protectflag::ProtectFlag;
-use crate::winapiwrapper::thread::{self, Thread};
-use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
-use crate::winapiwrapper::virtualmem::VirtualMem;
+use crate::winapiwrapper::process::{Process, ProcessAccess};
+use crate::winapiwrapper::thread::{self, Thread, ThreadCreationFlags};
+use crate::winapiwrapper::virtualmem::{AllocType, ProtectFlag, VirtualMem};
 use dynasmrt::{dynasm, DynasmApi};
 use std::ffi::c_void;
 use std::mem;
