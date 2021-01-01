@@ -4,6 +4,9 @@ extern crate bitflags;
 #[macro_use]
 extern crate anyhow;
 
+#[macro_use]
+extern crate thiserror;
+
 #[cfg(target_arch = "x86")]
 use pelite::pe32::{Pe, PeFile};
 

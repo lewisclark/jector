@@ -1,9 +1,9 @@
 use super::alloctype::AllocType;
-use super::error::Error;
 use super::freetype::FreeType;
 use super::handleowner::HandleOwner;
 use super::process::Process;
 use super::protectflag::ProtectFlag;
+use super::WinApiError;
 use std::ops::Drop;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
@@ -22,7 +22,7 @@ impl<'a> VirtualMem<'a> {
         size: usize,
         alloc_type: AllocType,
         protect: ProtectFlag,
-    ) -> Result<Self, Error> {
+    ) -> anyhow::Result<Self> {
         let mem = unsafe {
             VirtualAllocEx(
                 process.handle(),
@@ -33,24 +33,24 @@ impl<'a> VirtualMem<'a> {
             )
         };
 
-        if mem.is_null() {
-            Err(Error::new("VirtualAllocEx returned NULL".to_string()))
-        } else {
-            Ok(Self {
-                process,
-                address: mem as usize,
-                size,
-                free_on_drop: true,
-            })
-        }
+        ensure!(
+            !mem.is_null(),
+            WinApiError::FunctionCallFailure("VirtualAllocEx".to_string())
+        );
+
+        Ok(Self {
+            process,
+            address: mem as usize,
+            size,
+            free_on_drop: true,
+        })
     }
 
-    pub fn free(&mut self, freetype: FreeType) -> Result<(), Error> {
-        if self.address == 0 {
-            return Err(Error::new(
-                "Tried to free null virtual memory region".to_string(),
-            ));
-        }
+    pub fn free(&mut self, freetype: FreeType) -> anyhow::Result<()> {
+        ensure!(
+            self.address() != 0,
+            "Attempted to free NULL virtual memory region"
+        );
 
         let size = if freetype.contains(FreeType::MEM_RELEASE) {
             0
@@ -67,11 +67,12 @@ impl<'a> VirtualMem<'a> {
             )
         };
 
-        if ret == 0 {
-            Err(Error::new("VirtualFreeEx failed".to_string()))
-        } else {
-            Ok(())
-        }
+        ensure!(
+            ret != 0,
+            WinApiError::FunctionCallFailure("VirtualFreeEx".to_string())
+        );
+
+        Ok(())
     }
 
     pub fn set_free_on_drop(&mut self, free_on_drop: bool) {
@@ -86,11 +87,11 @@ impl<'a> VirtualMem<'a> {
         self.size
     }
 
-    pub fn write_memory(&self, data: &[u8], offset: usize) -> Result<usize, Error> {
+    pub fn write_memory(&self, data: &[u8], offset: usize) -> anyhow::Result<usize> {
         self.process.write_memory(data, self.address + offset)
     }
 
-    pub fn read_memory(&self, data: &mut [u8], offset: usize) -> Result<usize, Error> {
+    pub fn read_memory(&self, data: &mut [u8], offset: usize) -> anyhow::Result<usize> {
         self.process.read_memory(data, self.address + offset)
     }
 
@@ -99,7 +100,7 @@ impl<'a> VirtualMem<'a> {
         offset: usize,
         size: usize,
         protect: ProtectFlag,
-    ) -> Result<u32, Error> {
+    ) -> anyhow::Result<u32> {
         self.process
             .virtual_protect(self.address + offset, size, protect)
     }

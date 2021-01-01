@@ -1,7 +1,7 @@
-use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::process::Process;
 use super::threadcreationflags::ThreadCreationFlags;
+use super::WinApiError;
 use std::ffi::c_void;
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
@@ -24,7 +24,7 @@ impl Thread {
         param: Option<*mut c_void>,
         creation_flags: ThreadCreationFlags,
         thread_id: Option<&mut u32>,
-    ) -> Result<Self, Error> {
+    ) -> anyhow::Result<Self> {
         let thread_id = match thread_id {
             Some(id) => id,
             None => ptr::null(),
@@ -47,32 +47,33 @@ impl Thread {
             )
         };
 
-        if handle.is_null() {
-            Err(Error::new("CreateRemoteThread returned NULL".to_string()))
-        } else {
-            Ok(Self { handle })
-        }
+        ensure!(
+            !handle.is_null(),
+            WinApiError::FunctionCallFailure("CreateRemoteThread".to_string())
+        );
+
+        Ok(Self { handle })
     }
 
-    pub fn exit_code(&self) -> Result<u32, Error> {
+    pub fn exit_code(&self) -> anyhow::Result<u32> {
         let mut code = 0;
         let ret = unsafe { GetExitCodeThread(self.handle, &mut code) };
+        ensure!(
+            ret != 0,
+            WinApiError::FunctionCallFailure("GetExitCodeThread".to_string())
+        );
 
-        if ret == 0 {
-            Err(Error::new("GetExitCodeThread failed".to_string()))
-        } else {
-            Ok(code)
-        }
+        Ok(code)
     }
 
-    pub fn wait(&self, timeout: u32) -> Result<u32, Error> {
+    pub fn wait(&self, timeout: u32) -> anyhow::Result<u32> {
         let ret = unsafe { WaitForSingleObject(self.handle, timeout) };
+        ensure!(
+            ret != WAIT_FAILED,
+            WinApiError::FunctionCallFailure("WaitForSingleObject".to_string())
+        );
 
-        if ret == WAIT_FAILED {
-            Err(Error::new("WaitForSingleObject failed".to_string()))
-        } else {
-            Ok(ret)
-        }
+        Ok(ret)
     }
 }
 

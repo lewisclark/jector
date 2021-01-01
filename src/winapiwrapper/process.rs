@@ -1,9 +1,9 @@
-use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::processaccess::ProcessAccess;
 use super::protectflag::ProtectFlag;
 use super::snapshot::Snapshot;
 use super::snapshotflags::SnapshotFlags;
+use super::WinApiError;
 use std::ffi::CStr;
 use std::ops::Drop;
 use std::path::Path;
@@ -19,38 +19,38 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn from_pid(pid: u32, access: ProcessAccess, inherit: bool) -> Result<Self, Error> {
+    pub fn from_pid(pid: u32, access: ProcessAccess, inherit: bool) -> anyhow::Result<Self> {
         let handle = unsafe { OpenProcess(access.bits(), inherit as i32, pid) };
 
-        if handle.is_null() {
-            Err(Error::new("OpenProcess returned NULL".to_string()))
-        } else {
-            Ok(Self { handle })
-        }
+        ensure!(
+            !handle.is_null(),
+            WinApiError::FunctionCallFailure("OpenProcess".to_string())
+        );
+
+        Ok(Self { handle })
     }
 
     pub fn from_current() -> Self {
         unsafe { Process::from_handle(GetCurrentProcess()) }
     }
 
-    pub fn pid(&self) -> Result<u32, Error> {
+    pub fn pid(&self) -> anyhow::Result<u32> {
         let pid = unsafe { GetProcessId(self.handle) };
 
-        if pid == 0 {
-            Err(Error::new("GetProcessId returned NULL".to_string()))
-        } else {
-            Ok(pid)
-        }
+        ensure!(
+            pid != 0,
+            WinApiError::FunctionCallFailure("GetProcessId".to_string())
+        );
+
+        Ok(pid)
     }
 
-    pub fn snapshot(&self, flags: SnapshotFlags) -> Result<Snapshot, Error> {
+    pub fn snapshot(&self, flags: SnapshotFlags) -> anyhow::Result<Snapshot> {
         Snapshot::from_pid(self.pid()?, flags)
     }
 
-    pub fn write_memory(&self, data: &[u8], address: usize) -> Result<usize, Error> {
-        if address == 0 {
-            return Err(Error::new("Address to write to is null".to_string()));
-        }
+    pub fn write_memory(&self, data: &[u8], address: usize) -> anyhow::Result<usize> {
+        ensure!(address != 0, "Attempted to write to NULL memory address");
 
         let (ret, num_bytes_written) = unsafe {
             let mut num_bytes_written = 0;
@@ -66,19 +66,17 @@ impl Process {
             (ret, num_bytes_written)
         };
 
-        if ret == 0 {
-            Err(Error::new("WriteProcessMemory failed".to_string()))
-        } else {
-            Ok(num_bytes_written)
-        }
+        ensure!(
+            ret != 0,
+            WinApiError::FunctionCallFailure("WriteProcessMemory".to_string())
+        );
+
+        Ok(num_bytes_written)
     }
 
-    pub fn read_memory(&self, buffer: &mut [u8], address: usize) -> Result<usize, Error> {
-        if address == 0 {
-            return Err(Error::new("Address to read from is null".to_string()));
-        } else if buffer.is_empty() {
-            return Err(Error::new("Buffer length is zero".to_string()));
-        }
+    pub fn read_memory(&self, buffer: &mut [u8], address: usize) -> anyhow::Result<usize> {
+        ensure!(address != 0, "Attempted to read from NULL memory address");
+        ensure!(!buffer.is_empty(), "Buffer length is zero");
 
         let (ret, num_bytes_read) = unsafe {
             let mut num_bytes_read = 0;
@@ -94,11 +92,12 @@ impl Process {
             (ret, num_bytes_read)
         };
 
-        if ret == 0 {
-            Err(Error::new("ReadProcessMemory failed".to_string()))
-        } else {
-            Ok(num_bytes_read)
-        }
+        ensure!(
+            ret != 0,
+            WinApiError::FunctionCallFailure("ReadProcessMemory".to_string())
+        );
+
+        Ok(num_bytes_read)
     }
 
     pub fn virtual_protect(
@@ -106,7 +105,7 @@ impl Process {
         address: usize,
         size: usize,
         protect: ProtectFlag,
-    ) -> Result<u32, Error> {
+    ) -> anyhow::Result<u32> {
         let (ret, old_protect) = unsafe {
             let mut old_protect = 0;
 
@@ -122,25 +121,24 @@ impl Process {
             )
         };
 
-        if ret != 0 {
-            Ok(old_protect)
-        } else {
-            Err(Error::new("VirtualProtectEx returned NULL".to_string()))
-        }
+        ensure!(
+            ret != 0,
+            WinApiError::FunctionCallFailure("VirtualProtectEx".to_string())
+        );
+
+        Ok(old_protect)
     }
 
     // FIXME: Won't work for manually mapped modules
-    pub fn module_entry_by_name(&self, name: &str) -> Result<Option<MODULEENTRY32>, Error> {
+    pub fn module_entry_by_name(&self, name: &str) -> anyhow::Result<Option<MODULEENTRY32>> {
         // Ensure consistency - make lowercase and ensure .dll extension is present
-        let name = match Path::new(name).with_extension("dll").to_str() {
-            Some(name) => Ok(name),
-            None => Err(Error::new(
-                "Failed to construct Path for module".to_string(),
-            )),
-        }?
-        .to_ascii_lowercase();
+        let name = Path::new(name)
+            .with_extension("dll")
+            .to_str()
+            .ok_or_else(|| anyhow!("Failed to convert Path to str"))?
+            .to_ascii_lowercase();
 
-        let entry: Option<Result<MODULEENTRY32, Error>> = self
+        let entry: Option<anyhow::Result<MODULEENTRY32>> = self
             .snapshot(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32)?
             .module_entries(self.pid()?)
             .filter_map(|entry| {
@@ -148,10 +146,10 @@ impl Process {
                     match unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }.to_str() {
                         Ok(name) => name,
                         Err(e) => {
-                            return Some(Err(Error::new(format!(
+                            return Some(Err(anyhow!(
                                 "Failed to construct CStr from MODULEENTRY32.szModule: {}",
                                 e
-                            ))))
+                            )))
                         }
                     }
                     .to_ascii_lowercase();

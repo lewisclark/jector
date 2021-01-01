@@ -1,6 +1,6 @@
-use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::snapshotflags::SnapshotFlags;
+use super::WinApiError;
 use std::mem::size_of;
 use std::ptr;
 use winapi::shared::minwindef::{BYTE, HMODULE};
@@ -16,16 +16,14 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    pub fn from_pid(pid: u32, flags: SnapshotFlags) -> Result<Self, Error> {
+    pub fn from_pid(pid: u32, flags: SnapshotFlags) -> anyhow::Result<Self> {
         let h = unsafe { CreateToolhelp32Snapshot(flags.bits(), pid) };
+        ensure!(
+            h != INVALID_HANDLE_VALUE,
+            WinApiError::FunctionCallFailure("CreateToolhelp32Snapshot".to_string())
+        );
 
-        if h != INVALID_HANDLE_VALUE {
-            Ok(unsafe { Self::from_handle(h) })
-        } else {
-            Err(Error::new(
-                "CreateToolhelp32Snapshot returned an invalid handle".to_string(),
-            ))
-        }
+        Ok(unsafe { Self::from_handle(h) })
     }
 
     pub fn module_entries(self, pid: u32) -> SnapshotModuleEntries {

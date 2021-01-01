@@ -1,4 +1,4 @@
-use super::error::Error;
+use super::WinApiError;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::winnt::HANDLE;
 
@@ -9,7 +9,7 @@ pub trait HandleOwner {
 
     fn is_handle_closable(&self) -> bool;
 
-    fn close_handle(&self) -> Result<(), Error> {
+    fn close_handle(&self) -> anyhow::Result<()> {
         if !self.is_handle_closable() {
             return Ok(());
         }
@@ -19,7 +19,9 @@ pub trait HandleOwner {
         if ret != 0 {
             Ok(())
         } else {
-            Err(Error::new("CloseHandle returned NULL".to_string()))
+            Err(anyhow!(WinApiError::FunctionCallFailure(
+                "CloseHandle".to_string()
+            )))
         }
     }
 }
