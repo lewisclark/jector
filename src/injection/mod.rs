@@ -15,7 +15,7 @@ pub fn inject(
     pe: PeFile,
     image: &[u8],
     method: InjectionMethod,
-) -> Result<usize, Box<dyn std::error::Error>> {
+) -> anyhow::Result<usize> {
     match method {
         InjectionMethod::LoadLibrary => loadlibrary::inject(pid, pe, image),
         InjectionMethod::ManualMap => manualmap::inject(pid, pe, image),

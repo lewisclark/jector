@@ -8,7 +8,6 @@ use crate::winapiwrapper::thread::{self, Thread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
 use dynasmrt::{dynasm, DynasmApi};
-use std::error;
 use std::ffi::c_void;
 use std::mem;
 use std::slice;
@@ -52,7 +51,7 @@ struct RuntimeFunction {
     end: u32,
 }
 
-pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn error::Error>> {
+pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
     let pe_size = pe.optional_header().SizeOfImage as usize;
 
     // Obtain target process handle
@@ -262,21 +261,15 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn error
 
         thr.wait(10000)?;
 
-        if thr.exit_code()? != 0 {
-            return Err(Box::new(Error::new(String::from(
-                "LdrpHandleTlsData failed",
-            ))));
-        }
+        ensure!(thr.exit_code()? == 0, "LdrpHandleTlsData thread failed");
     }
 
     // Set up SEH for loader
     let exception = pe.exception()?;
-
-    if !exception.check_sorted() {
-        return Err(Box::new(Error::new(
-            "Exception routines are not sorted".to_string(),
-        )));
-    }
+    ensure!(
+        exception.check_sorted(),
+        "Exception routines are not sorted"
+    );
 
     let exception_data_directory = pe.data_directory()[IMAGE_DIRECTORY_ENTRY_EXCEPTION as usize];
     let exception_fn_table =

@@ -1,4 +1,3 @@
-use std::error;
 use std::ffi::{CStr, CString};
 use winapi::shared::minwindef::{BOOL, LPARAM};
 use winapi::shared::windef::HWND;
@@ -33,7 +32,7 @@ impl Window {
         Self { handle }
     }
 
-    pub fn find(window_name: &str) -> Result<Option<Self>, Box<dyn error::Error>> {
+    pub fn find(window_name: &str) -> anyhow::Result<Option<Self>> {
         let window_name = CString::new(window_name)?;
 
         let state = EnumWindowsState {

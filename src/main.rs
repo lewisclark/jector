@@ -2,7 +2,7 @@ use clap::{App, Arg, ArgGroup};
 use std::fs::File;
 use std::io::Read;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> anyhow::Result<()> {
     let matches = App::new("jector")
         .version("1.0")
         .author("Lewis Clark")

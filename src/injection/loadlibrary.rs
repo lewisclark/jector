@@ -27,7 +27,7 @@ use winapi::shared::minwindef::MAX_PATH;
 
 const PTR_SIZE: usize = size_of::<usize>();
 
-pub fn inject_library(pid: u32, path: &str) -> Result<usize, Box<dyn std::error::Error>> {
+pub fn inject_library(pid: u32, path: &str) -> anyhow::Result<usize> {
     // Open a handle to the target process
     let process = Process::from_pid(
         pid,
@@ -96,16 +96,12 @@ pub fn inject_library(pid: u32, path: &str) -> Result<usize, Box<dyn std::error:
         usize::from_ne_bytes(buf)
     };
 
-    if thr.exit_code()? == 0 && handle != 0 {
-        Ok(handle)
-    } else {
-        Err(Box::new(Error::new(
-            "LoadLibrary injection returned NULL".to_string(),
-        )))
-    }
+    ensure!(thr.exit_code()? == 0 && handle != 0);
+
+    Ok(handle)
 }
 
-pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
+pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
     // Determine file path for library
     let mut file_name: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -116,12 +112,7 @@ pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std:
     let mut file_path = env::temp_dir();
     file_path.push(&file_name);
 
-    if file_path.as_os_str().len() >= (MAX_PATH - 1) {
-        // -1 for null byte
-        return Err(Box::new(Error::new(
-            "File path to target dll exceeds MAX_PATH".to_string(),
-        )));
-    }
+    ensure!(file_path.as_os_str().len() < MAX_PATH);
 
     let file_path = file_path.as_path();
 
@@ -133,19 +124,17 @@ pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std:
         file.sync_data()?;
     }
 
-    let ret = inject_library(
+    inject_library(
         pid,
         file_path.to_str().ok_or_else(|| {
             Box::new(Error::new("Failed to convert file path to str".to_string()))
         })?,
-    );
-
-    ret
+    )
 }
 
 // Create the assembly for the stub that is responsible for calling LoadLibrary
 #[cfg(target_arch = "x86_64")]
-fn create_stubm() -> ExecutableBuffer {
+fn create_stubm() -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x64::Assembler::new()?;
     dynasm!(assembler
         ; .arch x64
@@ -167,10 +156,7 @@ fn create_stubm() -> ExecutableBuffer {
 }
 
 #[cfg(target_arch = "x86")]
-fn create_stub(
-    loadlibrary: *const (),
-    buffer_address: usize,
-) -> Result<ExecutableBuffer, Box<dyn std::error::Error>> {
+fn create_stub(loadlibrary: *const (), buffer_address: usize) -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x86::Assembler::new()?;
     dynasm!(assembler
         ; .arch x86

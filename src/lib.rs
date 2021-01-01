@@ -1,6 +1,9 @@
 #[macro_use]
 extern crate bitflags;
 
+#[macro_use]
+extern crate anyhow;
+
 #[cfg(target_arch = "x86")]
 use pelite::pe32::{Pe, PeFile};
 
@@ -13,36 +16,26 @@ mod error;
 mod injection;
 mod winapiwrapper;
 
-use error::Error;
 pub use injection::injectionmethod::InjectionMethod;
 use winapiwrapper::window::Window;
 
-pub fn inject_pid(
-    pid: u32,
-    dll: &[u8],
-    method: InjectionMethod,
-) -> Result<usize, Box<dyn std::error::Error>> {
+pub fn inject_pid(pid: u32, dll: &[u8], method: InjectionMethod) -> anyhow::Result<usize> {
     let pe = PeFile::from_bytes(dll)?;
-    if pe.file_header().Characteristics & IMAGE_FILE_DLL != IMAGE_FILE_DLL {
-        return Err(Box::new(Error::new("Expected library PE file".to_string())));
-    }
+    ensure!(pe.file_header().Characteristics & IMAGE_FILE_DLL != 0);
 
-    injection::inject(pid, pe, dll, method)
+    Ok(injection::inject(pid, pe, dll, method)?)
 }
 
 pub fn inject_window(
     window_name: &str,
     dll: &[u8],
     method: InjectionMethod,
-) -> Result<usize, Box<dyn std::error::Error>> {
+) -> anyhow::Result<usize> {
     let window = Window::find(window_name)?;
 
     if let Some(window) = window {
         inject_pid(window.pid(), dll, method)
     } else {
-        Err(Box::new(Error::new(format!(
-            "Failed to find window with name '{}'",
-            window_name
-        ))))
+        bail!("Failed to find window with name '{}'", window_name)
     }
 }
