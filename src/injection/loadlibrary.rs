@@ -1,4 +1,3 @@
-use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::module::Module;
 use crate::winapiwrapper::process::Process;
@@ -126,9 +125,9 @@ pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
     inject_library(
         pid,
-        file_path.to_str().ok_or_else(|| {
-            Box::new(Error::new("Failed to convert file path to str".to_string()))
-        })?,
+        file_path
+            .to_str()
+            .ok_or_else(|| anyhow!("Failed to convert Path to str"))?,
     )
 }
 

@@ -1,4 +1,3 @@
-use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::module::Module;
 use crate::winapiwrapper::process::Process;
@@ -177,9 +176,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
                     Ok(proc_addr)
                 }
-                ByOrdinal { ord: _ } => Err(Error::new(
-                    "Ordinal import resolution not implemented".to_string(),
-                )),
+                ByOrdinal { ord: _ } => Err(anyhow!("Import by ordinal is not implemented")),
             }?;
 
             image_mem.write_memory(&import_address.to_ne_bytes(), thunk)?;
@@ -197,12 +194,10 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
         // Credit to Blackbone for the signature and offset
         let matches = patternscan::scan(data, "74 33 44 8d 43 9")?;
-        let ldrphandletlsdata = match matches.first() {
-            Some(n) => Ok(n),
-            None => Err(Error::new(String::from(
-                "Failed to find function ntdll::LdrpHandleTlsData",
-            ))),
-        }? - 0x46
+        let ldrphandletlsdata = matches
+            .first()
+            .ok_or_else(|| anyhow!("Failed to find function ntdll::LdrpHandleTlsData",))?
+            - 0x46
             + ntdll.handle() as usize;
 
         let ldr_data = LDR_DATA_TABLE_ENTRY_BASE {

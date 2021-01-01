@@ -15,7 +15,6 @@ use pelite::pe64::{Pe, PeFile};
 
 use winapi::um::winnt::IMAGE_FILE_DLL;
 
-mod error;
 mod injection;
 mod winapiwrapper;
 
