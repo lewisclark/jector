@@ -48,7 +48,10 @@ impl Process {
     }
 
     pub fn write_memory(&self, data: &[u8], address: usize) -> anyhow::Result<usize> {
-        ensure!(address != 0, "Attempted to write to NULL memory address");
+        ensure!(
+            address != 0,
+            WinApiError::BadParameter("address".to_string(), "null pointer".to_string())
+        );
 
         let (ret, num_bytes_written) = unsafe {
             let mut num_bytes_written = 0;
@@ -73,8 +76,14 @@ impl Process {
     }
 
     pub fn read_memory(&self, buffer: &mut [u8], address: usize) -> anyhow::Result<usize> {
-        ensure!(address != 0, "Attempted to read from NULL memory address");
-        ensure!(!buffer.is_empty(), "Buffer length is zero");
+        ensure!(
+            address != 0,
+            WinApiError::BadParameter("address".to_string(), "null poiner".to_string())
+        );
+        ensure!(
+            !buffer.is_empty(),
+            WinApiError::BadParameter("buffer".to_string(), "len == 0".to_string())
+        );
 
         let (ret, num_bytes_read) = unsafe {
             let mut num_bytes_read = 0;

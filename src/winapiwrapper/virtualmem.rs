@@ -47,7 +47,7 @@ impl<'a> VirtualMem<'a> {
     pub fn free(&mut self, freetype: FreeType) -> anyhow::Result<()> {
         ensure!(
             self.address() != 0,
-            "Attempted to free NULL virtual memory region"
+            WinApiError::BadParameter("self.address".to_string(), "null pointer".to_string())
         );
 
         let size = if freetype.contains(FreeType::MEM_RELEASE) {
