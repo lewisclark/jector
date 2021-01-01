@@ -1,8 +1,8 @@
-use crate::winapiwrapper::module::Module;
+use crate::winapiwrapper::module::{is_system_module, Module};
 use crate::winapiwrapper::process::{Process, ProcessAccess};
 use crate::winapiwrapper::thread::{self, Thread, ThreadCreationFlags};
 use crate::winapiwrapper::virtualmem::{AllocType, ProtectFlag, VirtualMem};
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{dynasm, DynasmApi, ExecutableBuffer};
 use std::ffi::c_void;
 use std::mem;
 use std::slice;
@@ -10,7 +10,8 @@ use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_ABSOLUTE,
-    IMAGE_REL_BASED_DIR64, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE,
+    IMAGE_REL_BASED_DIR64, IMAGE_REL_BASED_HIGHLOW, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ,
+    IMAGE_SCN_MEM_WRITE,
 };
 
 #[cfg(target_arch = "x86")]
@@ -30,6 +31,8 @@ use {
 const PTR_SIZE: usize = mem::size_of::<usize>();
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
+
+#[cfg(target_arch = "x86_64")]
 type FnRtlAddFunctionTable = unsafe extern "system" fn(*const RuntimeFunction, u32, u64) -> u8;
 
 #[repr(C)]
@@ -123,6 +126,9 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
                 let rva = block.rva_of(word) as usize;
 
                 match typ {
+                    IMAGE_REL_BASED_ABSOLUTE => {
+                        println!("Skipping base relocation for type ABSOLUTE")
+                    }
                     IMAGE_REL_BASED_DIR64 => {
                         let mut buf = [0_u8; PTR_SIZE];
                         image_mem.read_memory(&mut buf, rva)?;
@@ -132,8 +138,14 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
                         println!("Performed DIR64 base relocation at rva {:x}", rva);
                     }
-                    IMAGE_REL_BASED_ABSOLUTE => {
-                        println!("Skipping base relocation for type ABSOLUTE")
+                    IMAGE_REL_BASED_HIGHLOW => {
+                        let mut buf = [0_u8; 4];
+                        image_mem.read_memory(&mut buf, rva)?;
+
+                        let p = usize::from_ne_bytes(buf).wrapping_add(image_delta);
+                        image_mem.write_memory(&p.to_ne_bytes(), rva)?;
+
+                        println!("Performed HIGHLOW base relocation at rva {:x}", rva);
                     }
                     _ => unimplemented!("Base relocation type: {:x}", typ),
                 };
@@ -146,18 +158,21 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
     // Resolve imports
     for descriptor in pe.imports()? {
         let module_name = descriptor.dll_name()?.to_str()?;
-        let module_entry = process.module_entry_by_name(module_name)?;
 
-        let module = match module_entry {
-            Some(entry) => unsafe { Module::from_handle(entry.hModule, pid, true) },
-            None => Module::load_external(pid, &module_name)?,
+        // If its a system module, just use the internal version
+        // The proc address will be the same between processes
+        let module = if is_system_module(module_name) {
+            Module::load_internal(module_name)?
+        } else {
+            match process.module_entry_by_name(module_name)? {
+                Some(entry) => unsafe { Module::from_handle(entry.hModule, pid, true) },
+                None => Module::load_external(pid, &module_name)?,
+            }
         };
 
         let mut thunk = descriptor.image().FirstThunk as usize;
         for import in descriptor.int()? {
-            let import = import?;
-
-            let import_address = match import {
+            let import_address = match import? {
                 ByName { hint: _, name } => {
                     let proc_addr = module.proc_address(name.to_str()?)? as usize;
 
@@ -182,25 +197,6 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
     // Initialize static TLS
     {
-        let ntdll = Module::load_internal("ntdll.dll")?;
-        let ntdll_info = ntdll.info()?;
-        let data = unsafe {
-            std::slice::from_raw_parts(ntdll.handle() as *const u8, ntdll_info.SizeOfImage as usize)
-        };
-
-        // Credit to Blackbone for the signature and offset
-        let matches = patternscan::scan(data, "74 33 44 8d 43 9")?;
-        let ldrphandletlsdata = matches
-            .first()
-            .ok_or_else(|| anyhow!("Failed to find function ntdll::LdrpHandleTlsData",))?
-            - 0x46
-            + ntdll.handle() as usize;
-
-        let ldr_data = LDR_DATA_TABLE_ENTRY_BASE {
-            pad: [0; 0x30],
-            dll_base: image_base,
-        };
-
         let stub_data = VirtualMem::alloc(
             &process,
             0,
@@ -208,6 +204,11 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
             AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
             ProtectFlag::PAGE_READWRITE,
         )?;
+
+        let ldr_data = LDR_DATA_TABLE_ENTRY_BASE {
+            pad: [0; 0x30],
+            dll_base: image_base,
+        };
 
         let ldr_data_bytes = unsafe {
             slice::from_raw_parts(
@@ -218,16 +219,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
         stub_data.write_memory(ldr_data_bytes, 0)?;
 
-        let mut assembler = dynasmrt::x64::Assembler::new()?;
-        dynasm!(assembler
-            ; .arch x64
-            ; mov rax, QWORD ldrphandletlsdata as _
-            ; mov rcx, QWORD stub_data.address() as _
-            ; call rax
-            ; ret
-        );
-        assembler.commit()?;
-        let stub = assembler.finalize().unwrap();
+        let stub = create_stub_ldrphandletlsdata(stub_data.address())?;
 
         let stub_mem = VirtualMem::alloc(
             &process,
@@ -255,22 +247,26 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
         ensure!(thr.exit_code()? == 0, "LdrpHandleTlsData thread failed");
     }
 
-    // Set up SEH for loader
-    let exception = pe.exception()?;
-    ensure!(
-        exception.check_sorted(),
-        "Exception routines are not sorted"
-    );
+    // Set up SEH for loader if 64-bit
+    #[cfg(target_os = "x86-64")]
+    {
+        let exception = pe.exception()?;
+        ensure!(
+            exception.check_sorted(),
+            "Exception routines are not sorted"
+        );
 
-    let exception_data_directory = pe.data_directory()[IMAGE_DIRECTORY_ENTRY_EXCEPTION as usize];
-    let exception_fn_table =
-        (exception_data_directory.VirtualAddress as usize + image_base) as *const RuntimeFunction;
-    let exception_fn_count = exception.functions().count() as u32;
+        let exception_data_directory =
+            pe.data_directory()[IMAGE_DIRECTORY_ENTRY_EXCEPTION as usize];
+        let exception_fn_table = (exception_data_directory.VirtualAddress as usize + image_base)
+            as *const RuntimeFunction;
+        let exception_fn_count = exception.functions().count() as u32;
 
-    println!(
-        "Exception function table -> {:x} with length {}",
-        exception_fn_table as usize, exception_fn_count
-    );
+        println!(
+            "Exception function table -> {:x} with length {}",
+            exception_fn_table as usize, exception_fn_count
+        );
+    }
 
     // Set proper memory protection for image sections
     for sh in pe.section_headers() {
@@ -328,18 +324,24 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
         loader_mem.size(),
     );
 
-    // Construct LoaderInfo
-    let lib_kernel32 = Module::load_internal("kernel32.dll")?;
-    let loader_info = LoaderInfo {
-        image_base,
-        optional_header: *pe.optional_header(),
+    // Construct LoaderInfoEh
+    #[cfg(target_os = "x86_64")]
+    let loader_info_eh = LoaderInfoEh {
         exception_fn_table,
         exception_fn_count,
         rtl_add_function_table: unsafe {
             mem::transmute::<*const (), FnRtlAddFunctionTable>(
-                lib_kernel32.proc_address("RtlAddFunctionTable")?,
+                Module::load_internal("kernel32.dll").proc_address("RtlAddFunctionTable")?,
             )
         },
+    };
+
+    // Construct LoaderInfo
+    let loader_info = LoaderInfo {
+        image_base,
+        optional_header: *pe.optional_header(),
+        #[cfg(target_arch = "x86_64")]
+        loader_info_eh,
     };
 
     // Write LoaderInfo to loader buffer
@@ -389,6 +391,14 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 struct LoaderInfo {
     image_base: usize,
     optional_header: IMAGE_OPTIONAL_HEADER,
+    #[cfg(target_arch = "x86_64")]
+    eh: LoaderInfoEh,
+}
+
+// Exception handling loader info
+#[repr(C)]
+#[cfg(target_arch = "x86_64")]
+struct LoaderInfoEh {
     exception_fn_table: *const RuntimeFunction,
     exception_fn_count: u32,
     rtl_add_function_table: FnRtlAddFunctionTable,
@@ -397,15 +407,18 @@ struct LoaderInfo {
 unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     let loader_info = &*(param as *const LoaderInfo);
 
-    // Fix SEH
-    let rtladdfunctableret = (loader_info.rtl_add_function_table)(
-        loader_info.exception_fn_table,
-        loader_info.exception_fn_count,
-        loader_info.image_base as u64,
-    );
+    // Fix SEH by creating function table (only required on 64-bit)
+    #[cfg(target_arch = "x86_64")]
+    {
+        let rtladdfunctableret = (loader_info.rtl_add_function_table)(
+            loader_info.exception_fn_table,
+            loader_info.exception_fn_count,
+            loader_info.image_base as u64,
+        );
 
-    if rtladdfunctableret == 0 {
-        return 10;
+        if rtladdfunctableret == 0 {
+            return 10;
+        }
     }
 
     if loader_info.optional_header.AddressOfEntryPoint != 0 {
@@ -420,4 +433,70 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     } else {
         20
     }
+}
+
+// Functions for retrieving LdrpHandleTlsData across architectures
+// Credits to Blackbone for the signatures and offsets
+#[cfg(target_arch = "x86")]
+const SIG_LDRPHANDLETLSDATA: &str = "33 f6 85 c0 79 03";
+#[cfg(target_arch = "x86")]
+const OFFSET_LDRPHANDLETLSDATA: usize = 0x2c;
+
+#[cfg(target_arch = "x86_64")]
+const SIG_LDRPHANDLETLSDATA: &str = "74 33 44 8d 43 9";
+#[cfg(target_arch = "x86_64")]
+const OFFSET_LDRPHANDLETLSDATA: usize = 0x46;
+
+fn get_ldrphandletlsdata() -> anyhow::Result<usize> {
+    // System modules are loaded at the same base address across processes
+    // So we can load ntdll and fetch LdrpHandleTlsData internally
+    let ntdll = Module::load_internal("ntdll.dll")?;
+    let ntdll_info = ntdll.info()?;
+    let data = unsafe {
+        std::slice::from_raw_parts(ntdll.handle() as *const u8, ntdll_info.SizeOfImage as usize)
+    };
+
+    Ok(patternscan::scan(data, SIG_LDRPHANDLETLSDATA)?
+        .first()
+        .ok_or_else(|| anyhow!("Failed to find function ntdll::LdrpHandleTlsData",))?
+        - OFFSET_LDRPHANDLETLSDATA
+        + ntdll.handle() as usize)
+}
+
+// The asm stub that is responsible for invoking LdrpHandleTlsData
+#[cfg(target_arch = "x86")]
+fn create_stub_ldrphandletlsdata(stub_data_address: usize) -> anyhow::Result<ExecutableBuffer> {
+    let mut assembler = dynasmrt::x86::Assembler::new()?;
+    dynasm!(assembler
+        ; .arch x86
+        ; push ebp
+        ; mov ebp, esp
+        ; mov eax, DWORD stub_data_address as _
+        ; push eax
+        ; mov eax, DWORD get_ldrphandletlsdata()? as _
+        ; call eax
+        ; mov esp, ebp
+        ; pop ebp
+        ; ret
+    );
+
+    assembler.commit()?;
+
+    Ok(assembler.finalize().unwrap())
+}
+
+#[cfg(target_arch = "x86_64")]
+fn create_stub_ldrphandletlsdata(stub_data_address: usize) -> anyhow::Result<ExecutableBuffer> {
+    let mut assembler = dynasmrt::x64::Assembler::new()?;
+    dynasm!(assembler
+        ; .arch x64
+        ; mov rax, QWORD get_ldrphandletlsdata()? as _
+        ; mov rcx, QWORD stub_data_address as _
+        ; call rax
+        ; ret
+    );
+
+    assembler.commit()?;
+
+    Ok(assembler.finalize().unwrap())
 }

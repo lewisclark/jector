@@ -1,15 +1,24 @@
 use super::handleowner::HandleOwner;
 use super::process::{Process, ProcessAccess};
 use super::WinApiError;
-use pelite::pe64::exports::Export::{Forward, Symbol};
-use pelite::pe64::Pe;
-use pelite::pe64::PeView;
 use std::ffi::CString;
 use std::mem::size_of;
 use std::path::Path;
 use winapi::shared::minwindef::{HMODULE, LPVOID};
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
 use winapi::um::psapi::{GetModuleInformation, MODULEINFO};
+
+#[cfg(target_arch = "x86")]
+use pelite::pe32::{
+    exports::Export::{Forward, Symbol},
+    Pe, PeView,
+};
+
+#[cfg(target_arch = "x86_64")]
+use pelite::pe64::{
+    exports::Export::{Forward, Symbol},
+    Pe, PeView,
+};
 
 pub struct Module {
     handle: HMODULE,
@@ -101,9 +110,9 @@ impl Module {
         let process = Process::from_pid(self.pid_owning, ProcessAccess::PROCESS_VM_READ, false)?;
         let info = self.info()?;
 
-        let mut buf: Vec<u8> = Vec::new();
+        let mut buf: Vec<u8> = Vec::with_capacity(info.SizeOfImage as usize);
         buf.resize(info.SizeOfImage as usize, 0);
-        process.read_memory(buf.as_mut_slice(), info.lpBaseOfDll as usize)?;
+        process.read_memory(&mut buf, info.lpBaseOfDll as usize)?;
 
         // TODO: Cache pe inside the Module struct - running it for every proc_address is expensive
         let pe = PeView::from_bytes(buf.as_slice())?;
@@ -162,5 +171,15 @@ impl Module {
         );
 
         Ok(info)
+    }
+}
+
+// System modules are loaded at the same base address across processes (changes on reboot)
+pub fn is_system_module(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+
+    match name.as_str() {
+        "kernel32.dll" | "ntdll.dll" => true,
+        _ => false,
     }
 }

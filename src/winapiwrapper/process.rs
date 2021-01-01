@@ -6,7 +6,7 @@ use std::ffi::CStr;
 use std::ops::Drop;
 use std::path::Path;
 use winapi::ctypes::c_void;
-use winapi::shared::minwindef::LPVOID;
+use winapi::shared::minwindef::{LPCVOID, LPVOID};
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
 use winapi::um::tlhelp32::MODULEENTRY32;
@@ -85,18 +85,15 @@ impl Process {
             WinApiError::BadParameter("buffer".to_string(), "len == 0".to_string())
         );
 
-        let (ret, num_bytes_read) = unsafe {
-            let mut num_bytes_read = 0;
-
-            let ret = ReadProcessMemory(
+        let mut num_bytes_read = 0;
+        let ret = unsafe {
+            ReadProcessMemory(
                 self.handle(),
-                address as *mut c_void,
-                buffer.as_ptr() as *mut c_void,
+                address as LPCVOID,
+                buffer.as_mut_ptr() as LPVOID,
                 buffer.len(),
                 &mut num_bytes_read,
-            );
-
-            (ret, num_bytes_read)
+            )
         };
 
         ensure!(

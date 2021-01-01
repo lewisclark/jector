@@ -14,7 +14,10 @@ fn get_last_error() -> u32 {
 
 #[derive(Error, Debug)]
 pub enum WinApiError {
-    #[error("Function call to {0} failed [GetLastError() = {}]", get_last_error())]
+    #[error(
+        "Function call to {0} failed [GetLastError() = 0x{:x}]",
+        get_last_error()
+    )]
     FunctionCallFailure(String),
     #[error("Bad or invalid parameter {0}: {1}")]
     BadParameter(String, String),
