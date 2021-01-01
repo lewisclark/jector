@@ -129,17 +129,17 @@ pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
 // Create the assembly for the stub that is responsible for calling LoadLibrary
 #[cfg(target_arch = "x86_64")]
-fn create_stubm() -> anyhow::Result<ExecutableBuffer> {
+fn create_stub(loadlibrary: *const (), buffer_address: usize) -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x64::Assembler::new()?;
     dynasm!(assembler
         ; .arch x64
         ; mov r8, QWORD loadlibrary as _                        // Move LoadLibraryA into r8
-        ; mov rcx, QWORD (buffer.address() + PTR_SIZE) as _     // Move library name to rcx
+        ; mov rcx, QWORD (buffer_address + PTR_SIZE) as _     // Move library name to rcx
         ; sub rsp, 40                                         // Allocate 32 bytes of shadow space
         // Had to add 8 bytes to it because a movaps ins was crashing because of stack misalignment
         ; call r8                                               // Call LoadLibraryA
         ; add rsp, 40                                         // Reclaim shadow space
-        ; mov rcx, QWORD buffer.address() as _                  // Move buffer address (handle dest)
+        ; mov rcx, QWORD buffer_address as _                  // Move buffer address (handle dest)
         ; mov [rcx], rax                                        // Put returned handle in handle dest
         ; xor rax, rax                                          // set rax to = 0 as ret val
         ; ret                                                   // Return to caller
