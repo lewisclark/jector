@@ -1,7 +1,12 @@
 #[macro_use]
 extern crate bitflags;
 
+#[cfg(target_arch = "x86")]
+use pelite::pe32::{Pe, PeFile};
+
+#[cfg(target_arch = "x86_64")]
 use pelite::pe64::{Pe, PeFile};
+
 use winapi::um::winnt::IMAGE_FILE_DLL;
 
 mod error;

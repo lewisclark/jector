@@ -7,6 +7,11 @@ use injectionmethod::InjectionMethod;
 use injector::Injector;
 use loadlibrary::LoadLibraryInjector;
 use manualmap::ManualMapInjector;
+
+#[cfg(target_arch = "x86")]
+use pelite::pe32::PeFile;
+
+#[cfg(target_arch = "x86_64")]
 use pelite::pe64::PeFile;
 
 pub fn inject(

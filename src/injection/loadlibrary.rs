@@ -8,8 +8,14 @@ use crate::winapiwrapper::protectflag::ProtectFlag;
 use crate::winapiwrapper::thread::{self, Thread};
 use crate::winapiwrapper::threadcreationflags::ThreadCreationFlags;
 use crate::winapiwrapper::virtualmem::VirtualMem;
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{dynasm, mmap::ExecutableBuffer, DynasmApi};
+
+#[cfg(target_arch = "x86")]
+use pelite::pe32::PeFile;
+
+#[cfg(target_arch = "x86_64")]
 use pelite::pe64::PeFile;
+
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use std::env;
@@ -56,22 +62,7 @@ impl LoadLibraryInjector {
         let libkernel32 = Module::load_internal("kernel32.dll")?;
         let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
-        let mut assembler = dynasmrt::x64::Assembler::new()?;
-        dynasm!(assembler
-            ; .arch x64
-            ; mov r8, QWORD loadlibrary as _                        // Move LoadLibraryA into r8
-            ; mov rcx, QWORD (buffer.address() + PTR_SIZE) as _     // Move library name to rcx
-            ; sub rsp, 40                                         // Allocate 32 bytes of shadow space
-            // Had to add 8 bytes to it because a movaps ins was crashing because of stack misalignment
-            ; call r8                                               // Call LoadLibraryA
-            ; add rsp, 40                                         // Reclaim shadow space
-            ; mov rcx, QWORD buffer.address() as _                  // Move buffer address (handle dest)
-            ; mov [rcx], rax                                        // Put returned handle in handle dest
-            ; xor rax, rax                                          // set rax to = 0 as ret val
-            ; ret                                                   // Return to caller
-        );
-        assembler.commit()?;
-        let stub = assembler.finalize().unwrap();
+        let stub = create_stub(loadlibrary, buffer.address())?;
 
         // Allocate a buffer for the stub code
         let stub_buffer = VirtualMem::alloc(
@@ -157,4 +148,54 @@ impl Injector for LoadLibraryInjector {
 
         ret
     }
+}
+
+// Create the assembly for the stub that is responsible for calling LoadLibrary
+#[cfg(target_arch = "x86_64")]
+fn create_stubm() -> ExecutableBuffer {
+    let mut assembler = dynasmrt::x64::Assembler::new()?;
+    dynasm!(assembler
+        ; .arch x64
+        ; mov r8, QWORD loadlibrary as _                        // Move LoadLibraryA into r8
+        ; mov rcx, QWORD (buffer.address() + PTR_SIZE) as _     // Move library name to rcx
+        ; sub rsp, 40                                         // Allocate 32 bytes of shadow space
+        // Had to add 8 bytes to it because a movaps ins was crashing because of stack misalignment
+        ; call r8                                               // Call LoadLibraryA
+        ; add rsp, 40                                         // Reclaim shadow space
+        ; mov rcx, QWORD buffer.address() as _                  // Move buffer address (handle dest)
+        ; mov [rcx], rax                                        // Put returned handle in handle dest
+        ; xor rax, rax                                          // set rax to = 0 as ret val
+        ; ret                                                   // Return to caller
+    );
+
+    assembler.commit()?;
+
+    Ok(assembler.finalize().unwrap())
+}
+
+#[cfg(target_arch = "x86")]
+fn create_stub(
+    loadlibrary: *const (),
+    buffer_address: usize,
+) -> Result<ExecutableBuffer, Box<dyn std::error::Error>> {
+    let mut assembler = dynasmrt::x86::Assembler::new()?;
+    dynasm!(assembler
+        ; .arch x86
+        ; push ebp
+        ; mov ebp, esp
+        ; lea eax, [(buffer_address + PTR_SIZE) as _]
+        ; push eax
+        ; mov eax, DWORD loadlibrary as _
+        ; call eax
+        ; lea ecx, [buffer_address as _]
+        ; mov [ecx], eax
+        ; xor eax, eax
+        ; mov esp, ebp
+        ; pop ebp
+        ; ret
+    );
+
+    assembler.commit()?;
+
+    Ok(assembler.finalize().unwrap())
 }
