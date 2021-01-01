@@ -11,7 +11,7 @@ use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_ABSOLUTE,
     IMAGE_REL_BASED_DIR64, IMAGE_REL_BASED_HIGHLOW, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ,
-    IMAGE_SCN_MEM_WRITE,
+    IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
 };
 
 #[cfg(target_arch = "x86")]
@@ -33,20 +33,12 @@ const PTR_SIZE: usize = mem::size_of::<usize>();
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
 
 #[cfg(target_arch = "x86_64")]
-type FnRtlAddFunctionTable = unsafe extern "system" fn(*const RuntimeFunction, u32, u64) -> u8;
+type FnRtlAddFunctionTable = unsafe extern "system" fn(PRUNTIME_FUNCTION, u32, u64) -> u8;
 
 #[repr(C)]
 struct LDR_DATA_TABLE_ENTRY_BASE {
     pad: [u8; 0x30],
     dll_base: usize,
-}
-
-// PRUNTIME_FUNCTION is not included in WinAPI for x86 arch for some reason?
-// Let's create it ourself
-#[repr(C)]
-struct RuntimeFunction {
-    begin: u32,
-    end: u32,
 }
 
 pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
@@ -142,7 +134,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
                         let mut buf = [0_u8; 4];
                         image_mem.read_memory(&mut buf, rva)?;
 
-                        let p = usize::from_ne_bytes(buf).wrapping_add(image_delta);
+                        let p = u32::from_ne_bytes(buf).wrapping_add(image_delta as u32);
                         image_mem.write_memory(&p.to_ne_bytes(), rva)?;
 
                         println!("Performed HIGHLOW base relocation at rva {:x}", rva);
@@ -248,8 +240,8 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
     }
 
     // Set up SEH for loader if 64-bit
-    #[cfg(target_os = "x86-64")]
-    {
+    #[cfg(target_arch = "x86_64")]
+    let (exception_fn_table, exception_fn_count) = {
         let exception = pe.exception()?;
         ensure!(
             exception.check_sorted(),
@@ -258,15 +250,12 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
         let exception_data_directory =
             pe.data_directory()[IMAGE_DIRECTORY_ENTRY_EXCEPTION as usize];
-        let exception_fn_table = (exception_data_directory.VirtualAddress as usize + image_base)
-            as *const RuntimeFunction;
+        let exception_fn_table =
+            (exception_data_directory.VirtualAddress as usize + image_base) as PRUNTIME_FUNCTION;
         let exception_fn_count = exception.functions().count() as u32;
 
-        println!(
-            "Exception function table -> {:x} with length {}",
-            exception_fn_table as usize, exception_fn_count
-        );
-    }
+        (exception_fn_table, exception_fn_count)
+    };
 
     // Set proper memory protection for image sections
     for sh in pe.section_headers() {
@@ -325,13 +314,13 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
     );
 
     // Construct LoaderInfoEh
-    #[cfg(target_os = "x86_64")]
+    #[cfg(target_arch = "x86_64")]
     let loader_info_eh = LoaderInfoEh {
         exception_fn_table,
         exception_fn_count,
         rtl_add_function_table: unsafe {
             mem::transmute::<*const (), FnRtlAddFunctionTable>(
-                Module::load_internal("kernel32.dll").proc_address("RtlAddFunctionTable")?,
+                Module::load_internal("kernel32.dll")?.proc_address("RtlAddFunctionTable")?,
             )
         },
     };
@@ -392,14 +381,14 @@ struct LoaderInfo {
     image_base: usize,
     optional_header: IMAGE_OPTIONAL_HEADER,
     #[cfg(target_arch = "x86_64")]
-    eh: LoaderInfoEh,
+    loader_info_eh: LoaderInfoEh,
 }
 
 // Exception handling loader info
 #[repr(C)]
 #[cfg(target_arch = "x86_64")]
 struct LoaderInfoEh {
-    exception_fn_table: *const RuntimeFunction,
+    exception_fn_table: PRUNTIME_FUNCTION,
     exception_fn_count: u32,
     rtl_add_function_table: FnRtlAddFunctionTable,
 }
@@ -410,9 +399,11 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     // Fix SEH by creating function table (only required on 64-bit)
     #[cfg(target_arch = "x86_64")]
     {
-        let rtladdfunctableret = (loader_info.rtl_add_function_table)(
-            loader_info.exception_fn_table,
-            loader_info.exception_fn_count,
+        let eh = &loader_info.loader_info_eh;
+
+        let rtladdfunctableret = (eh.rtl_add_function_table)(
+            eh.exception_fn_table,
+            eh.exception_fn_count,
             loader_info.image_base as u64,
         );
 
