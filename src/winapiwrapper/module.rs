@@ -2,7 +2,6 @@ use super::error::Error;
 use super::handleowner::HandleOwner;
 use super::process::Process;
 use super::processaccess::ProcessAccess;
-use crate::injection::loadlibrary::LoadLibraryInjector;
 use pelite::pe64::exports::Export::{Forward, Symbol};
 use pelite::pe64::Pe;
 use pelite::pe64::PeView;
@@ -70,7 +69,7 @@ impl Module {
             .ok_or_else(|| Error::new("Failed to convert PathBuf to str".to_string()))?;
 
         // TODO: Manual map external libraries when stable
-        match LoadLibraryInjector::inject_library(pid, lib_path) {
+        match crate::injection::loadlibrary::inject_library(pid, lib_path) {
             Ok(base) => Ok(unsafe { Self::from_handle(base as HMODULE, pid, true) }),
             Err(e) => Err(Error::new(format!(
                 "Failed to inject external library: {}",

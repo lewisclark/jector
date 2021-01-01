@@ -1,4 +1,3 @@
-use super::injector::Injector;
 use crate::error::Error;
 use crate::winapiwrapper::alloctype::AllocType;
 use crate::winapiwrapper::module::Module;
@@ -28,126 +27,120 @@ use winapi::shared::minwindef::MAX_PATH;
 
 const PTR_SIZE: usize = size_of::<usize>();
 
-pub struct LoadLibraryInjector {}
+pub fn inject_library(pid: u32, path: &str) -> Result<usize, Box<dyn std::error::Error>> {
+    // Open a handle to the target process
+    let process = Process::from_pid(
+        pid,
+        ProcessAccess::SYNCHRONIZE
+            | ProcessAccess::PROCESS_CREATE_THREAD
+            | ProcessAccess::PROCESS_QUERY_INFORMATION
+            | ProcessAccess::PROCESS_VM_OPERATION
+            | ProcessAccess::PROCESS_VM_WRITE
+            | ProcessAccess::PROCESS_VM_READ,
+        false,
+    )?;
 
-impl LoadLibraryInjector {
-    pub fn inject_library(pid: u32, path: &str) -> Result<usize, Box<dyn std::error::Error>> {
-        // Open a handle to the target process
-        let process = Process::from_pid(
-            pid,
-            ProcessAccess::SYNCHRONIZE
-                | ProcessAccess::PROCESS_CREATE_THREAD
-                | ProcessAccess::PROCESS_QUERY_INFORMATION
-                | ProcessAccess::PROCESS_VM_OPERATION
-                | ProcessAccess::PROCESS_VM_WRITE
-                | ProcessAccess::PROCESS_VM_READ,
-            false,
-        )?;
+    // Allocate a buffer inside the target process to contain the path of dll
+    let buffer = VirtualMem::alloc(
+        &process,
+        0,
+        MAX_PATH as usize + PTR_SIZE,
+        AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
+        ProtectFlag::PAGE_READWRITE,
+    )?;
 
-        // Allocate a buffer inside the target process to contain the path of dll
-        let buffer = VirtualMem::alloc(
-            &process,
-            0,
-            MAX_PATH as usize + PTR_SIZE,
-            AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
-            ProtectFlag::PAGE_READWRITE,
-        )?;
+    // Write file path to buffer
+    let path_bytes = CString::new(path)?.into_bytes();
+    buffer.write_memory(path_bytes.as_slice(), PTR_SIZE)?;
 
-        // Write file path to buffer
-        let path_bytes = CString::new(path)?.into_bytes();
-        buffer.write_memory(path_bytes.as_slice(), PTR_SIZE)?;
+    // Obtain the address of LoadLibrary
+    // TODO: Use Library::load_external when it is stable with proc_address_external
+    let libkernel32 = Module::load_internal("kernel32.dll")?;
+    let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
-        // Obtain the address of LoadLibrary
-        // TODO: Use Library::load_external when it is stable with proc_address_external
-        let libkernel32 = Module::load_internal("kernel32.dll")?;
-        let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
+    let stub = create_stub(loadlibrary, buffer.address())?;
 
-        let stub = create_stub(loadlibrary, buffer.address())?;
+    // Allocate a buffer for the stub code
+    let stub_buffer = VirtualMem::alloc(
+        &process,
+        0,
+        stub.size(),
+        AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
+        ProtectFlag::PAGE_EXECUTE_READWRITE,
+    )?;
 
-        // Allocate a buffer for the stub code
-        let stub_buffer = VirtualMem::alloc(
-            &process,
-            0,
-            stub.size(),
-            AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
-            ProtectFlag::PAGE_EXECUTE_READWRITE,
-        )?;
+    // Write stub to buffer
+    stub_buffer.write_memory(&stub, 0)?;
 
-        // Write stub to buffer
-        stub_buffer.write_memory(&stub, 0)?;
+    // Transmute dynamic asm to a function pointer
+    let stub_fn = unsafe { transmute::<usize, thread::StartRoutine>(stub_buffer.address()) };
 
-        // Transmute dynamic asm to a function pointer
-        let stub_fn = unsafe { transmute::<usize, thread::StartRoutine>(stub_buffer.address()) };
+    // Spawn a remote thread to execute the stub
+    let thr = Thread::spawn_remote(
+        &process,
+        None,
+        stub_fn,
+        None,
+        ThreadCreationFlags::IMMEDIATE,
+        None,
+    )?;
 
-        // Spawn a remote thread to execute the stub
-        let thr = Thread::spawn_remote(
-            &process,
-            None,
-            stub_fn,
-            None,
-            ThreadCreationFlags::IMMEDIATE,
-            None,
-        )?;
+    // Wait for the thread to finish execution
+    thr.wait(10000)?;
 
-        // Wait for the thread to finish execution
-        thr.wait(10000)?;
+    // Read handle from the buffer that was written by the stub
+    let handle = {
+        let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
+        buffer.read_memory(&mut buf, 0)?;
 
-        // Read handle from the buffer that was written by the stub
-        let handle = {
-            let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
-            buffer.read_memory(&mut buf, 0)?;
+        usize::from_ne_bytes(buf)
+    };
 
-            usize::from_ne_bytes(buf)
-        };
-
-        if thr.exit_code()? == 0 && handle != 0 {
-            Ok(handle)
-        } else {
-            Err(Box::new(Error::new(
-                "LoadLibrary injection returned NULL".to_string(),
-            )))
-        }
+    if thr.exit_code()? == 0 && handle != 0 {
+        Ok(handle)
+    } else {
+        Err(Box::new(Error::new(
+            "LoadLibrary injection returned NULL".to_string(),
+        )))
     }
 }
 
-impl Injector for LoadLibraryInjector {
-    fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
-        // Determine file path for library
-        let mut file_name: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(16)
-            .collect();
-        file_name.push_str(".dll");
+pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> Result<usize, Box<dyn std::error::Error>> {
+    // Determine file path for library
+    let mut file_name: String = rand::thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(16)
+        .collect();
+    file_name.push_str(".dll");
 
-        let mut file_path = env::temp_dir();
-        file_path.push(&file_name);
+    let mut file_path = env::temp_dir();
+    file_path.push(&file_name);
 
-        if file_path.as_os_str().len() >= (MAX_PATH - 1) {
-            // -1 for null byte
-            return Err(Box::new(Error::new(
-                "File path to target dll exceeds MAX_PATH".to_string(),
-            )));
-        }
-
-        let file_path = file_path.as_path();
-
-        // Write the file to disk so that LoadLibraryA can use it
-        {
-            // Enclosed in braces so the lock on this file is freed for LoadLibrary to acquire
-            let mut file = File::create(file_path)?;
-            file.write_all(image)?;
-            file.sync_data()?;
-        }
-
-        let ret = Self::inject_library(
-            pid,
-            file_path.to_str().ok_or_else(|| {
-                Box::new(Error::new("Failed to convert file path to str".to_string()))
-            })?,
-        );
-
-        ret
+    if file_path.as_os_str().len() >= (MAX_PATH - 1) {
+        // -1 for null byte
+        return Err(Box::new(Error::new(
+            "File path to target dll exceeds MAX_PATH".to_string(),
+        )));
     }
+
+    let file_path = file_path.as_path();
+
+    // Write the file to disk so that LoadLibraryA can use it
+    {
+        // Enclosed in braces so the lock on this file is freed for LoadLibrary to acquire
+        let mut file = File::create(file_path)?;
+        file.write_all(image)?;
+        file.sync_data()?;
+    }
+
+    let ret = inject_library(
+        pid,
+        file_path.to_str().ok_or_else(|| {
+            Box::new(Error::new("Failed to convert file path to str".to_string()))
+        })?,
+    );
+
+    ret
 }
 
 // Create the assembly for the stub that is responsible for calling LoadLibrary
