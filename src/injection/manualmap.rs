@@ -9,9 +9,8 @@ use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
 use winapi::um::winnt::{
-    DLL_PROCESS_ATTACH, IMAGE_DIRECTORY_ENTRY_EXCEPTION, IMAGE_REL_BASED_ABSOLUTE,
-    IMAGE_REL_BASED_DIR64, IMAGE_REL_BASED_HIGHLOW, IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ,
-    IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
+    DLL_PROCESS_ATTACH, IMAGE_REL_BASED_ABSOLUTE, IMAGE_REL_BASED_DIR64, IMAGE_REL_BASED_HIGHLOW,
+    IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE,
 };
 
 #[cfg(target_arch = "x86")]
@@ -26,6 +25,7 @@ use {
     pelite::pe64::image::IMAGE_OPTIONAL_HEADER,
     pelite::pe64::imports::Import::{ByName, ByOrdinal},
     pelite::pe64::{Pe, PeFile},
+    winapi::um::winnt::{IMAGE_DIRECTORY_ENTRY_EXCEPTION, PRUNTIME_FUNCTION},
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
