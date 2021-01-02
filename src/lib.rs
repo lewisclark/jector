@@ -7,23 +7,29 @@ extern crate anyhow;
 #[macro_use]
 extern crate thiserror;
 
-#[cfg(target_arch = "x86")]
-use pelite::pe32::{Pe, PeFile};
-
-#[cfg(target_arch = "x86_64")]
-use pelite::pe64::{Pe, PeFile};
-
+use pelite::{PeFile, Wrap};
 use winapi::um::winnt::IMAGE_FILE_DLL;
 
 mod injection;
 mod winapiwrapper;
 
 pub use injection::injectionmethod::InjectionMethod;
+use winapiwrapper::process::{Process, ProcessAccess};
 use winapiwrapper::window::Window;
 
 pub fn inject_pid(pid: u32, dll: &[u8], method: InjectionMethod) -> anyhow::Result<usize> {
     let pe = PeFile::from_bytes(dll)?;
     ensure!(pe.file_header().Characteristics & IMAGE_FILE_DLL != 0);
+
+    // If the library is 32-bit, ensure the target process is running under WOW64
+    if matches!(pe, Wrap::T32(_pe32)) {
+        let process =
+            Process::from_pid(pid, ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION, false)?;
+        ensure!(
+            process.is_wow64()?,
+            "Library is 32-bit but process is not running under WOW64"
+        );
+    }
 
     Ok(injection::inject(pid, pe, dll, method)?)
 }

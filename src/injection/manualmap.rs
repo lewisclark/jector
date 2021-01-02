@@ -3,6 +3,8 @@ use crate::winapiwrapper::process::{Process, ProcessAccess};
 use crate::winapiwrapper::thread::{self, Thread, ThreadCreationFlags};
 use crate::winapiwrapper::virtualmem::{AllocType, ProtectFlag, VirtualMem};
 use dynasmrt::{dynasm, DynasmApi, ExecutableBuffer};
+use pelite::image::IMAGE_DIRECTORY_ENTRY_EXCEPTION;
+use pelite::{pe64::imports::Import, PeFile, Wrap};
 use std::ffi::c_void;
 use std::mem;
 use std::slice;
@@ -10,29 +12,12 @@ use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
 use winapi::um::winnt::{
     DLL_PROCESS_ATTACH, IMAGE_REL_BASED_ABSOLUTE, IMAGE_REL_BASED_DIR64, IMAGE_REL_BASED_HIGHLOW,
-    IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE,
-};
-
-#[cfg(target_arch = "x86")]
-use {
-    pelite::pe32::image::IMAGE_OPTIONAL_HEADER,
-    pelite::pe32::imports::Import::{ByName, ByOrdinal},
-    pelite::pe32::{Pe, PeFile},
-};
-
-#[cfg(target_arch = "x86_64")]
-use {
-    pelite::pe64::image::IMAGE_OPTIONAL_HEADER,
-    pelite::pe64::imports::Import::{ByName, ByOrdinal},
-    pelite::pe64::{Pe, PeFile},
-    winapi::um::winnt::{IMAGE_DIRECTORY_ENTRY_EXCEPTION, PRUNTIME_FUNCTION},
+    IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
 };
 
 const PTR_SIZE: usize = mem::size_of::<usize>();
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
-
-#[cfg(target_arch = "x86_64")]
 type FnRtlAddFunctionTable = unsafe extern "system" fn(PRUNTIME_FUNCTION, u32, u64) -> u8;
 
 #[repr(C)]
@@ -42,7 +27,23 @@ struct LDR_DATA_TABLE_ENTRY_BASE {
 }
 
 pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
-    let pe_size = pe.optional_header().SizeOfImage as usize;
+    let (is_wow64, pe_size, pref_image_base, size_of_headers, entry_point_offset) =
+        match pe.optional_header() {
+            Wrap::T32(header32) => (
+                true,
+                header32.SizeOfImage as usize,
+                header32.ImageBase as usize,
+                header32.SizeOfHeaders as usize,
+                header32.AddressOfEntryPoint as usize,
+            ),
+            Wrap::T64(header64) => (
+                false,
+                header64.SizeOfImage as usize,
+                header64.ImageBase as usize,
+                header64.SizeOfHeaders as usize,
+                header64.AddressOfEntryPoint as usize,
+            ),
+        };
 
     // Obtain target process handle
     let process = Process::from_pid(
@@ -55,8 +56,6 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
             | ProcessAccess::SYNCHRONIZE,
         false,
     )?;
-
-    let pref_image_base = pe.optional_header().ImageBase as usize;
 
     // Allocate a buffer inside target process for the image
     // Tries to allocate at the preferred base first. Allocates elsewhere if that fails.
@@ -89,7 +88,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
     );
 
     // Write image headers
-    image_mem.write_memory(&image[..pe.optional_header().SizeOfHeaders as usize], 0)?;
+    image_mem.write_memory(&image[..size_of_headers], 0)?;
 
     // Write image sections
     for section in pe.section_headers() {
@@ -165,7 +164,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
         let mut thunk = descriptor.image().FirstThunk as usize;
         for import in descriptor.int()? {
             let import_address = match import? {
-                ByName { hint: _, name } => {
+                Import::ByName { hint: _, name } => {
                     let proc_addr = module.proc_address(name.to_str()?)? as usize;
 
                     println!(
@@ -179,7 +178,9 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
                     Ok(proc_addr)
                 }
-                ByOrdinal { ord: _ } => Err(anyhow!("Import by ordinal is not implemented")),
+                Import::ByOrdinal { ord: _ } => {
+                    Err(anyhow!("Import by ordinal is not implemented"))
+                }
             }?;
 
             image_mem.write_memory(&import_address.to_ne_bytes(), thunk)?;
@@ -211,7 +212,11 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
         stub_data.write_memory(ldr_data_bytes, 0)?;
 
-        let stub = create_stub_ldrphandletlsdata(stub_data.address())?;
+        let stub = if is_wow64 {
+            create_stub_ldrphandletlsdata32(stub_data.address())
+        } else {
+            create_stub_ldrphandletlsdata64(stub_data.address())
+        }?;
 
         let stub_mem = VirtualMem::alloc(
             &process,
@@ -238,24 +243,6 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
         ensure!(thr.exit_code()? == 0, "LdrpHandleTlsData thread failed");
     }
-
-    // Set up SEH for loader if 64-bit
-    #[cfg(target_arch = "x86_64")]
-    let (exception_fn_table, exception_fn_count) = {
-        let exception = pe.exception()?;
-        ensure!(
-            exception.check_sorted(),
-            "Exception routines are not sorted"
-        );
-
-        let exception_data_directory =
-            pe.data_directory()[IMAGE_DIRECTORY_ENTRY_EXCEPTION as usize];
-        let exception_fn_table =
-            (exception_data_directory.VirtualAddress as usize + image_base) as PRUNTIME_FUNCTION;
-        let exception_fn_count = exception.functions().count() as u32;
-
-        (exception_fn_table, exception_fn_count)
-    };
 
     // Set proper memory protection for image sections
     for sh in pe.section_headers() {
@@ -313,23 +300,46 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
         loader_mem.size(),
     );
 
-    // Construct LoaderInfoEh
-    #[cfg(target_arch = "x86_64")]
-    let loader_info_eh = LoaderInfoEh {
-        exception_fn_table,
-        exception_fn_count,
-        rtl_add_function_table: unsafe {
-            mem::transmute::<*const (), FnRtlAddFunctionTable>(
-                Module::load_internal("kernel32.dll")?.proc_address("RtlAddFunctionTable")?,
-            )
-        },
+    // Construct LoaderInfoEh for 64-bit
+    // SEH doesn't need fixing for 32-bit
+    let loader_info_eh = if !is_wow64 {
+        let (exception_fn_table, exception_fn_count) = {
+            let exception = match pe.exception()? {
+                Wrap::T32(_except32) => panic!(), // This should never happen
+                Wrap::T64(except64) => except64,
+            };
+
+            ensure!(
+                exception.check_sorted(),
+                "Exception routines are not sorted"
+            );
+
+            let exception_data_directory =
+                pe.data_directory()[IMAGE_DIRECTORY_ENTRY_EXCEPTION as usize];
+            let exception_fn_table = (exception_data_directory.VirtualAddress as usize + image_base)
+                as PRUNTIME_FUNCTION;
+            let exception_fn_count = exception.functions().count() as u32;
+
+            (exception_fn_table, exception_fn_count)
+        };
+
+        Some(LoaderInfoEh {
+            exception_fn_table,
+            exception_fn_count,
+            rtl_add_function_table: unsafe {
+                mem::transmute::<*const (), FnRtlAddFunctionTable>(
+                    Module::load_internal("kernel32.dll")?.proc_address("RtlAddFunctionTable")?,
+                )
+            },
+        })
+    } else {
+        None
     };
 
     // Construct LoaderInfo
     let loader_info = LoaderInfo {
         image_base,
-        optional_header: *pe.optional_header(),
-        #[cfg(target_arch = "x86_64")]
+        entry_point: unsafe { mem::transmute::<usize, FnDllMain>(image_base + entry_point_offset) },
         loader_info_eh,
     };
 
@@ -379,14 +389,12 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 #[repr(C)]
 struct LoaderInfo {
     image_base: usize,
-    optional_header: IMAGE_OPTIONAL_HEADER,
-    #[cfg(target_arch = "x86_64")]
-    loader_info_eh: LoaderInfoEh,
+    entry_point: FnDllMain,
+    loader_info_eh: Option<LoaderInfoEh>,
 }
 
 // Exception handling loader info
 #[repr(C)]
-#[cfg(target_arch = "x86_64")]
 struct LoaderInfoEh {
     exception_fn_table: PRUNTIME_FUNCTION,
     exception_fn_count: u32,
@@ -397,10 +405,7 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
     let loader_info = &*(param as *const LoaderInfo);
 
     // Fix SEH by creating function table (only required on 64-bit)
-    #[cfg(target_arch = "x86_64")]
-    {
-        let eh = &loader_info.loader_info_eh;
-
+    if let Some(eh) = &loader_info.loader_info_eh {
         let rtladdfunctableret = (eh.rtl_add_function_table)(
             eh.exception_fn_table,
             eh.exception_fn_count,
@@ -412,33 +417,22 @@ unsafe extern "system" fn loader(param: *mut winapic_void) -> i32 {
         }
     }
 
-    if loader_info.optional_header.AddressOfEntryPoint != 0 {
-        let entry_point_addr =
-            loader_info.image_base + loader_info.optional_header.AddressOfEntryPoint as usize;
-
-        mem::transmute::<usize, FnDllMain>(entry_point_addr)(
-            loader_info.image_base as HINSTANCE,
-            DLL_PROCESS_ATTACH,
-            0 as LPVOID,
-        )
-    } else {
-        20
-    }
+    (loader_info.entry_point)(
+        loader_info.image_base as HINSTANCE,
+        DLL_PROCESS_ATTACH,
+        0 as LPVOID,
+    )
 }
 
 // Functions for retrieving LdrpHandleTlsData across architectures
 // Credits to Blackbone for the signatures and offsets
-#[cfg(target_arch = "x86")]
-const SIG_LDRPHANDLETLSDATA: &str = "33 f6 85 c0 79 03";
-#[cfg(target_arch = "x86")]
-const OFFSET_LDRPHANDLETLSDATA: usize = 0x2c;
+const SIG_LDRPHANDLETLSDATA32: &str = "33 f6 85 c0 79 03";
+const OFFSET_LDRPHANDLETLSDATA32: usize = 0x2c;
 
-#[cfg(target_arch = "x86_64")]
-const SIG_LDRPHANDLETLSDATA: &str = "74 33 44 8d 43 9";
-#[cfg(target_arch = "x86_64")]
-const OFFSET_LDRPHANDLETLSDATA: usize = 0x46;
+const SIG_LDRPHANDLETLSDATA64: &str = "74 33 44 8d 43 9";
+const OFFSET_LDRPHANDLETLSDATA64: usize = 0x46;
 
-fn get_ldrphandletlsdata() -> anyhow::Result<usize> {
+fn get_ldrphandletlsdata(is_wow64: bool) -> anyhow::Result<usize> {
     // System modules are loaded at the same base address across processes
     // So we can load ntdll and fetch LdrpHandleTlsData internally
     let ntdll = Module::load_internal("ntdll.dll")?;
@@ -447,16 +441,21 @@ fn get_ldrphandletlsdata() -> anyhow::Result<usize> {
         std::slice::from_raw_parts(ntdll.handle() as *const u8, ntdll_info.SizeOfImage as usize)
     };
 
-    Ok(patternscan::scan(data, SIG_LDRPHANDLETLSDATA)?
+    let (sig, offset) = if is_wow64 {
+        (SIG_LDRPHANDLETLSDATA32, OFFSET_LDRPHANDLETLSDATA32)
+    } else {
+        (SIG_LDRPHANDLETLSDATA64, OFFSET_LDRPHANDLETLSDATA64)
+    };
+
+    Ok(patternscan::scan(data, sig)?
         .first()
         .ok_or_else(|| anyhow!("Failed to find function ntdll::LdrpHandleTlsData",))?
-        - OFFSET_LDRPHANDLETLSDATA
+        - offset
         + ntdll.handle() as usize)
 }
 
 // The asm stub that is responsible for invoking LdrpHandleTlsData
-#[cfg(target_arch = "x86")]
-fn create_stub_ldrphandletlsdata(stub_data_address: usize) -> anyhow::Result<ExecutableBuffer> {
+fn create_stub_ldrphandletlsdata32(stub_data_address: usize) -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x86::Assembler::new()?;
     dynasm!(assembler
         ; .arch x86
@@ -464,7 +463,7 @@ fn create_stub_ldrphandletlsdata(stub_data_address: usize) -> anyhow::Result<Exe
         ; mov ebp, esp
         ; mov eax, DWORD stub_data_address as _
         ; push eax
-        ; mov eax, DWORD get_ldrphandletlsdata()? as _
+        ; mov eax, DWORD get_ldrphandletlsdata(true)? as _
         ; call eax
         ; mov esp, ebp
         ; pop ebp
@@ -476,12 +475,11 @@ fn create_stub_ldrphandletlsdata(stub_data_address: usize) -> anyhow::Result<Exe
     Ok(assembler.finalize().unwrap())
 }
 
-#[cfg(target_arch = "x86_64")]
-fn create_stub_ldrphandletlsdata(stub_data_address: usize) -> anyhow::Result<ExecutableBuffer> {
+fn create_stub_ldrphandletlsdata64(stub_data_address: usize) -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x64::Assembler::new()?;
     dynasm!(assembler
         ; .arch x64
-        ; mov rax, QWORD get_ldrphandletlsdata()? as _
+        ; mov rax, QWORD get_ldrphandletlsdata(false)? as _
         ; mov rcx, QWORD stub_data_address as _
         ; call rax
         ; ret

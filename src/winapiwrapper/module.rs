@@ -1,24 +1,13 @@
 use super::handleowner::HandleOwner;
 use super::process::{Process, ProcessAccess};
 use super::WinApiError;
+use pelite::{pe64::exports::Export, PeView};
 use std::ffi::CString;
 use std::mem::size_of;
 use std::path::Path;
 use winapi::shared::minwindef::{HMODULE, LPVOID};
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
 use winapi::um::psapi::{GetModuleInformation, MODULEINFO};
-
-#[cfg(target_arch = "x86")]
-use pelite::pe32::{
-    exports::Export::{Forward, Symbol},
-    Pe, PeView,
-};
-
-#[cfg(target_arch = "x86_64")]
-use pelite::pe64::{
-    exports::Export::{Forward, Symbol},
-    Pe, PeView,
-};
 
 pub struct Module {
     handle: HMODULE,
@@ -123,8 +112,8 @@ impl Module {
         );
 
         match exports_by.name(proc_name)? {
-            Symbol(&rva) => Ok((rva as usize + info.lpBaseOfDll as usize) as *const ()),
-            Forward(name) => {
+            Export::Symbol(&rva) => Ok((rva as usize + info.lpBaseOfDll as usize) as *const ()),
+            Export::Forward(name) => {
                 // TODO: Check for ordinal forwarded exports
                 let name = name.to_str()?;
 
@@ -177,5 +166,6 @@ impl Module {
 pub fn is_system_module(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
 
+    // TODO: Incomplete list
     matches!(name.as_str(), "kernel32.dll" | "ntdll.dll")
 }

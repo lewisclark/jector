@@ -3,13 +3,7 @@ use crate::winapiwrapper::process::{Process, ProcessAccess};
 use crate::winapiwrapper::thread::{self, Thread, ThreadCreationFlags};
 use crate::winapiwrapper::virtualmem::{AllocType, ProtectFlag, VirtualMem};
 use dynasmrt::{dynasm, mmap::ExecutableBuffer, DynasmApi};
-
-#[cfg(target_arch = "x86")]
-use pelite::pe32::PeFile;
-
-#[cfg(target_arch = "x86_64")]
-use pelite::pe64::PeFile;
-
+use pelite::PeFile;
 use rand::distributions::Alphanumeric;
 use rand::Rng;
 use std::env;
@@ -53,7 +47,11 @@ pub fn inject_library(pid: u32, path: &str) -> anyhow::Result<usize> {
     let libkernel32 = Module::load_internal("kernel32.dll")?;
     let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
-    let stub = create_stub(loadlibrary, buffer.address())?;
+    let stub = if process.is_wow64()? {
+        create_stub_32(loadlibrary, buffer.address())
+    } else {
+        create_stub_64(loadlibrary, buffer.address())
+    }?;
 
     // Allocate a buffer for the stub code
     let stub_buffer = VirtualMem::alloc(
@@ -128,8 +126,10 @@ pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 }
 
 // Create the assembly for the stub that is responsible for calling LoadLibrary
-#[cfg(target_arch = "x86_64")]
-fn create_stub(loadlibrary: *const (), buffer_address: usize) -> anyhow::Result<ExecutableBuffer> {
+fn create_stub_64(
+    loadlibrary: *const (),
+    buffer_address: usize,
+) -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x64::Assembler::new()?;
     dynasm!(assembler
         ; .arch x64
@@ -150,8 +150,10 @@ fn create_stub(loadlibrary: *const (), buffer_address: usize) -> anyhow::Result<
     Ok(assembler.finalize().unwrap())
 }
 
-#[cfg(target_arch = "x86")]
-fn create_stub(loadlibrary: *const (), buffer_address: usize) -> anyhow::Result<ExecutableBuffer> {
+fn create_stub_32(
+    loadlibrary: *const (),
+    buffer_address: usize,
+) -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x86::Assembler::new()?;
     dynasm!(assembler
         ; .arch x86
