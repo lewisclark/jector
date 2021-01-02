@@ -10,7 +10,8 @@ use winapi::shared::minwindef::{LPCVOID, LPVOID};
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
 use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
 use winapi::um::tlhelp32::MODULEENTRY32;
-use winapi::um::winnt::{self, HANDLE};
+use winapi::um::winnt::{self, HANDLE, IMAGE_FILE_MACHINE_UNKNOWN};
+use winapi::um::wow64apiset::IsWow64Process2;
 
 pub struct Process {
     handle: HANDLE,
@@ -170,6 +171,20 @@ impl Process {
             Some(entry) => Some(entry?),
             None => None,
         })
+    }
+
+    pub fn is_wow64(&self) -> anyhow::Result<bool> {
+        let mut process_machine = 0;
+        let mut native_machine = 0;
+        let ret =
+            unsafe { IsWow64Process2(self.handle, &mut process_machine, &mut native_machine) };
+
+        ensure!(
+            ret != 0,
+            WinApiError::FunctionCallFailure("IsWow64Process2".to_string())
+        );
+
+        Ok(process_machine != IMAGE_FILE_MACHINE_UNKNOWN)
     }
 }
 
