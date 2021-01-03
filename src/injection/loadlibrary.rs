@@ -11,9 +11,10 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
 use std::mem::{size_of, transmute};
+use std::path::Path;
 use winapi::shared::minwindef::MAX_PATH;
 
-pub fn inject_library(pid: u32, path: &str) -> anyhow::Result<usize> {
+pub fn inject_library(pid: u32, path: &Path) -> anyhow::Result<usize> {
     // Open a handle to the target process
     let process = Process::from_pid(
         pid,
@@ -43,12 +44,14 @@ pub fn inject_library(pid: u32, path: &str) -> anyhow::Result<usize> {
     )?;
 
     // Write file path to buffer
-    let path_bytes = CString::new(path)?.into_bytes();
+    let path_bytes =
+        CString::new(path.to_str().ok_or_else(|| anyhow!("Failed to convert"))?)?.into_bytes();
     buffer.write_memory(path_bytes.as_slice(), remote_process_ptr_size)?;
 
     // Obtain the address of LoadLibrary
-    let libkernel32 = Module::find_or_load_external(process.pid()?, "kernel32.dll", None)?;
-    let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
+    let libkernel32 =
+        Module::find_or_load_external(process.pid()?, Path::new("kernel32.dll"), None)?;
+    let loadlibrary = libkernel32.proc_address("LoadLibraryA", None)?;
 
     let stub = if is_wow64 {
         create_stub_32(loadlibrary, buffer.address())
@@ -128,19 +131,11 @@ pub fn inject(pid: u32, _pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
         file.sync_data()?;
     }
 
-    inject_library(
-        pid,
-        file_path
-            .to_str()
-            .ok_or_else(|| anyhow!("Failed to convert Path to str"))?,
-    )
+    inject_library(pid, file_path)
 }
 
 // Create the assembly for the stub that is responsible for calling LoadLibrary
-fn create_stub_64(
-    loadlibrary: *const (),
-    buffer_address: usize,
-) -> anyhow::Result<ExecutableBuffer> {
+fn create_stub_64(loadlibrary: usize, buffer_address: usize) -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x64::Assembler::new()?;
     dynasm!(assembler
         ; .arch x64
@@ -161,10 +156,7 @@ fn create_stub_64(
     Ok(assembler.finalize().unwrap())
 }
 
-fn create_stub_32(
-    loadlibrary: *const (),
-    buffer_address: usize,
-) -> anyhow::Result<ExecutableBuffer> {
+fn create_stub_32(loadlibrary: usize, buffer_address: usize) -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x86::Assembler::new()?;
     dynasm!(assembler
         ; .arch x86

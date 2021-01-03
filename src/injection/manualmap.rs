@@ -8,6 +8,7 @@ use pelite::image::IMAGE_DIRECTORY_ENTRY_EXCEPTION;
 use pelite::{pe64::imports::Import, PeFile, Wrap};
 use std::ffi::c_void;
 use std::mem;
+use std::path::Path;
 use std::slice;
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID, TRUE};
@@ -147,26 +148,43 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
     // Resolve imports
     for descriptor in pe.imports()? {
-        let module_name = descriptor.dll_name()?.to_str()?;
+        let module_path = descriptor.dll_name()?.to_str()?.to_ascii_lowercase();
+        let module_path = Path::new(&module_path);
 
-        let module = match process.module_entry_by_name(module_name, None)? {
-            Some(entry) => unsafe { Module::from_handle(entry.hModule, pid, true) },
-            None => Module::find_or_load_external(pid, &module_name, None)?,
+        let snapshot_flags = match is_wow64 {
+            true => SnapshotFlags::TH32CS_SNAPMODULE32,
+            false => SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32,
         };
+
+        let module = Module::find_or_load_external(pid, &module_path, Some(snapshot_flags))?;
 
         let mut thunk = descriptor.image().FirstThunk as usize;
         for import in descriptor.int()? {
             let import_address = match import? {
                 Import::ByName { hint: _, name } => {
-                    let proc_addr = module.proc_address(name.to_str()?)? as usize;
+                    let proc_name = name.to_str()?;
+                    let proc_addr = module.proc_address(proc_name, Some(snapshot_flags))?;
+
+                    if is_wow64 {
+                        println!("mdoule {:x}", module.info()?.lpBaseOfDll as usize);
+                        ensure!(
+                            proc_addr <= u32::max_value() as usize,
+                            anyhow!(
+                                "Received 64-bit proc address for wow64 process: {:?}:{} at {:x}",
+                                module_path,
+                                proc_name,
+                                proc_addr
+                            )
+                        );
+                    }
 
                     println!(
-                        "Import {}:{} at {:x} written to {:x} (abs: {:x})",
-                        module_name,
+                        "Import {:?}:{} at {:x} written to {:x} (abs: {:x})",
+                        module_path,
                         name,
                         proc_addr,
                         thunk,
-                        image_base + thunk,
+                        image_base + thunk as usize,
                     );
 
                     Ok(proc_addr)
@@ -176,13 +194,17 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
                 }
             }?;
 
-            image_mem.write_memory(&import_address.to_ne_bytes(), thunk)?;
+            if is_wow64 {
+                image_mem.write_memory(&(import_address as u32).to_ne_bytes(), thunk)?;
+            } else {
+                image_mem.write_memory(&(import_address as u64).to_ne_bytes(), thunk)?;
+            }
 
             thunk += if is_wow64 {
                 mem::size_of::<u32>()
             } else {
                 mem::size_of::<u64>()
-            } as usize;
+            };
         }
     }
 
@@ -336,9 +358,9 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
             exception_fn_table,
             exception_fn_count,
             rtl_add_function_table: unsafe {
-                mem::transmute::<*const (), FnRtlAddFunctionTable>(
+                mem::transmute::<usize, FnRtlAddFunctionTable>(
                     Module::find_or_load_internal("kernel32.dll")?
-                        .proc_address("RtlAddFunctionTable")?,
+                        .proc_address("RtlAddFunctionTable", None)?,
                 )
             },
         };
@@ -386,7 +408,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
         None,
     )?;
 
-    thread.wait(10000)?;
+    thread.wait(9999999)?;
 
     ensure!(thread.exit_code()? == TRUE as u32);
 
@@ -400,7 +422,6 @@ struct LoaderInfo32 {
     entry_point: FnDllMain,
 }
 
-// We write this in asm because jector is only compiled as 64-bit
 fn get_loader32() -> anyhow::Result<ExecutableBuffer> {
     let mut assembler = dynasmrt::x86::Assembler::new()?;
     dynasm!(assembler
@@ -408,14 +429,16 @@ fn get_loader32() -> anyhow::Result<ExecutableBuffer> {
         ; push ebp
         ; mov ebp, esp
 
+        // Put LoaderInfo32 into ecx
+        ; mov ecx, [ebp + 8]
+
         // Push DllMain args
         ; push 0
         ; push DLL_PROCESS_ATTACH as _
-        ; lea eax, [ebp + 8]
-        ; push DWORD [eax]
+        ; push DWORD [ecx]
 
         // Call DllMain
-        ; mov eax, [ebp + 12]
+        ; mov eax, [ecx + 8] // Why is image_base 8 bytes large as a u32?
         ; call eax
 
         ; mov esp, ebp
@@ -500,7 +523,7 @@ fn get_ldrphandletlsdata(is_wow64: bool, process: &Process) -> anyhow::Result<us
     let ntdll = if is_wow64 {
         Module::find_or_load_external(
             process.pid()?,
-            "ntdll.dll",
+            Path::new("ntdll.dll"),
             Some(SnapshotFlags::TH32CS_SNAPMODULE32),
         )
     } else {

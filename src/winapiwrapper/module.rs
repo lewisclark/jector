@@ -2,23 +2,18 @@ use super::handleowner::HandleOwner;
 use super::process::{Process, ProcessAccess};
 use super::snapshot::SnapshotFlags;
 use super::WinApiError;
-use pelite::{pe32, pe64, pe64::exports::Export, PeFile, Wrap};
+use pelite::{pe64::exports::Export, PeFile};
 use std::ffi::CString;
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::mem::size_of;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use winapi::shared::minwindef::{HMODULE, LPVOID};
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
 use winapi::um::psapi::{GetModuleFileNameExA, GetModuleInformation, MODULEINFO};
+use winapi::um::sysinfoapi::GetSystemDirectoryA;
 use winapi::um::winnt::LPSTR;
 use winapi::um::wow64apiset::GetSystemWow64DirectoryA;
-
-// TODO
-const SYSTEM_MODULES: &[&str] = &[
-    "windows\\system32\\kernel32.dll",
-    "windows\\system32\\vcruntime140.dll",
-];
 
 pub struct Module {
     handle: HMODULE,
@@ -41,40 +36,53 @@ impl Module {
 
     pub fn find_or_load_external(
         pid: u32,
-        name: &str,
+        path: &Path,
         snapshot_flags: Option<SnapshotFlags>,
     ) -> anyhow::Result<Self> {
-        let path = Path::new(&name.to_ascii_lowercase()).with_extension("dll");
-        let name = path
+        let path = path.with_extension("dll");
+        let file_name = path
+            .file_name()
+            .ok_or_else(|| anyhow!("Expected a filename"))?
             .to_str()
-            .ok_or_else(|| anyhow!("Failed to convert Path to str"))?;
+            .ok_or_else(|| anyhow!("Failed to convert"))?;
 
         let process =
             Process::from_pid(pid, ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION, false)?;
 
-        // Check if the module is already loaded in the target process first
-        if let Some(entry) = process.module_entry_by_name(&name, snapshot_flags)? {
-            println!("yee {} {} {:x}", name, pid, entry.hModule as usize);
+        // Return the already loaded module if it exists
+        if let Some(entry) = process.module_entry_by_name(&file_name, snapshot_flags)? {
             return Ok(unsafe { Self::from_handle(entry.hModule, pid, true) });
         }
 
-        // It's not loaded, let's load it ourself
+        // Do path conversion magic for c runtime libraries and wow64 libraries
+        let path = match file_name.starts_with("api-ms-win-crt-") {
+            true => {
+                let mut dir = if process.is_wow64()? {
+                    get_wow64_dir()
+                } else {
+                    get_system_dir()
+                }?;
 
-        // FIXME: Temporary path resolution
-        let loc = if name.starts_with("api-ms-win-crt-") {
-            "C:\\Windows\\System32\\downlevel\\a"
-        } else {
-            "C:\\Windows\\System32\\a"
+                dir.push(format!("downlevel\\{}", file_name));
+
+                dir
+            }
+            false => {
+                // TODO only do this if it's a system module
+                let mut dir = if process.is_wow64()? {
+                    get_wow64_dir()
+                } else {
+                    get_system_dir()
+                }?;
+
+                dir.push(file_name.to_string());
+
+                dir
+            }
         };
 
-        let mut lib_path = Path::new(loc).to_path_buf();
-        lib_path.set_file_name(name);
-        let lib_path = lib_path
-            .to_str()
-            .ok_or_else(|| anyhow!("Failed to convert PathBuf to str".to_string()))?;
-
         // TODO: Manual map external libraries when stable
-        match crate::injection::loadlibrary::inject_library(pid, lib_path) {
+        match crate::injection::loadlibrary::inject_library(pid, &path) {
             Ok(base) => Ok(unsafe { Self::from_handle(base as HMODULE, pid, true) }),
             Err(e) => Err(e),
         }
@@ -88,14 +96,20 @@ impl Module {
         }
     }
 
-    pub fn proc_address(&self, proc_name: &str) -> anyhow::Result<*const ()> {
+    // Takes snapshot_flags so proc_address_external can get module handles
+    // For forwarded exports
+    pub fn proc_address(
+        &self,
+        proc_name: &str,
+        snapshot_flags: Option<SnapshotFlags>,
+    ) -> anyhow::Result<usize> {
         match self.is_external {
-            true => self.proc_address_external(proc_name),
+            true => self.proc_address_external(proc_name, snapshot_flags),
             false => self.proc_address_internal(proc_name),
         }
     }
 
-    fn proc_address_internal(&self, proc_name: &str) -> anyhow::Result<*const ()> {
+    fn proc_address_internal(&self, proc_name: &str) -> anyhow::Result<usize> {
         let proc_name = CString::new(proc_name)?.into_raw();
         let addr = unsafe { GetProcAddress(self.handle, proc_name) };
 
@@ -104,28 +118,31 @@ impl Module {
             WinApiError::FunctionCallFailure("GetProcAddress".to_string())
         );
 
-        Ok(addr as *const ())
+        Ok(addr as usize)
     }
 
     // We load system modules from disk because we know the file location
     // And the proc offset will be the same
-    fn proc_address_external(&self, proc_name: &str) -> anyhow::Result<*const ()> {
+    fn proc_address_external(
+        &self,
+        proc_name: &str,
+        snapshot_flags: Option<SnapshotFlags>,
+    ) -> anyhow::Result<usize> {
         let proc = Process::from_pid(
             self.pid_owning,
             ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION,
             false,
         )?;
 
-        let file_name = Path::new(&self.file_name()?).to_path_buf();
-        let dll_path = if self.is_system_module()? && proc.is_wow64()? {
-            system_module_path_to_wow64_path(&file_name)?
+        let path = self.path()?;
+        let path = if is_system_module(&path)? && proc.is_wow64()? {
+            system_module_path_to_wow64_path(&path)?
         } else {
-            file_name
+            path
         };
 
         let dll_bytes = {
-            println!("{:?}", dll_path);
-            let mut file = OpenOptions::new().read(true).open(&dll_path)?;
+            let mut file = OpenOptions::new().read(true).open(&path)?;
             let mut buf = Vec::new();
             file.read_to_end(&mut buf)?;
 
@@ -133,9 +150,35 @@ impl Module {
         };
 
         // TODO: Cache pe inside the Module struct - running it for every proc_address is expensive
-        let pe = PeFile::from_bytes(&dll_bytes)?;
+        let exports_by = PeFile::from_bytes(&dll_bytes)?.exports()?.by()?;
 
-        self.external_export_by_name(pe.exports()?, proc_name, self.info()?.lpBaseOfDll as usize)
+        ensure!(
+            exports_by.check_sorted()?,
+            "Function exports table is not sorted"
+        );
+
+        let base_address = self.info()?.lpBaseOfDll as usize;
+
+        match exports_by.name(proc_name)? {
+            Export::Symbol(&rva) => Ok(rva as usize + base_address),
+            Export::Forward(name) => {
+                // TODO: Check for ordinal forwarded exports
+                let name = name.to_str()?;
+
+                let v: Vec<&str> = name.split('.').take(2).collect();
+                ensure!(
+                    v.len() == 2,
+                    "Named forwarded export was not formatted properly"
+                );
+
+                let (dll, fwd_proc_name) =
+                    (v.get(0).unwrap().to_ascii_lowercase(), v.get(1).unwrap());
+                let lib =
+                    Self::find_or_load_external(self.pid_owning, Path::new(&dll), snapshot_flags)?;
+
+                lib.proc_address_external(fwd_proc_name, snapshot_flags)
+            }
+        }
     }
 
     pub fn info(&self) -> anyhow::Result<MODULEINFO> {
@@ -168,7 +211,7 @@ impl Module {
         Ok(info)
     }
 
-    pub fn file_name(&self) -> anyhow::Result<String> {
+    pub fn path(&self) -> anyhow::Result<PathBuf> {
         let proc = Process::from_pid(
             self.pid_owning,
             ProcessAccess::PROCESS_QUERY_INFORMATION | ProcessAccess::PROCESS_VM_READ,
@@ -192,54 +235,21 @@ impl Module {
 
         buf.resize(ret, 0);
 
-        Ok(CString::new(buf)?.into_string()?)
+        Ok(Path::new(&CString::new(buf)?.into_string()?.to_ascii_lowercase()).to_path_buf())
     }
+}
 
-    pub fn is_system_module(&self) -> anyhow::Result<bool> {
-        let name = self.file_name()?.to_ascii_lowercase();
+// Retrieves the system directory (C:\Windows\System32)
+// https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getsystemdirectorya
+pub fn get_system_dir() -> anyhow::Result<PathBuf> {
+    let mut buf = vec![0; 0x200];
+    let ret = unsafe { GetSystemDirectoryA(buf.as_mut_ptr() as LPSTR, buf.len() as u32) } as usize;
 
-        Ok(SYSTEM_MODULES
-            .iter()
-            .any(|sys_mod_name| name.contains(sys_mod_name)))
-    }
+    buf.resize(ret, 0);
 
-    // Returns the rva of an export by proc name
-    fn external_export_by_name<'a, Pe32, Pe64>(
-        &self,
-        exports: Wrap<pe32::exports::Exports<'a, Pe32>, pe64::exports::Exports<'a, Pe64>>,
-        name: &str,
-        mod_base_addr: usize,
-    ) -> anyhow::Result<*const ()>
-    where
-        Pe32: pe32::Pe<'a>,
-        Pe64: pe64::Pe<'a>,
-    {
-        let exports_by = exports.by()?;
+    let str_dir = CString::new(buf)?.into_string()?.to_ascii_lowercase();
 
-        ensure!(
-            exports_by.check_sorted()?,
-            "Function exports table is not sorted"
-        );
-
-        match exports_by.name(name)? {
-            Export::Symbol(&rva) => Ok((rva as usize + mod_base_addr) as *const ()),
-            Export::Forward(name) => {
-                // TODO: Check for ordinal forwarded exports
-                let name = name.to_str()?;
-
-                let v: Vec<&str> = name.split('.').take(2).collect();
-                ensure!(
-                    v.len() == 2,
-                    "Named forwarded export was not formatted properly"
-                );
-
-                let (dll, fwd_proc_name) = (v.get(0).unwrap(), v.get(1).unwrap());
-                let lib = Self::find_or_load_external(self.pid_owning, dll, None)?;
-
-                lib.proc_address(fwd_proc_name)
-            }
-        }
-    }
+    Ok(Path::new(&str_dir).to_path_buf())
 }
 
 // Retrieves the WoW64 system directory
@@ -251,20 +261,41 @@ pub fn get_wow64_dir() -> anyhow::Result<PathBuf> {
 
     buf.resize(ret, 0);
 
-    let str_dir = CString::new(buf)?.into_string()?;
+    let str_dir = CString::new(buf)?.into_string()?.to_ascii_lowercase();
 
     Ok(Path::new(&str_dir).to_path_buf())
 }
 
-// FIXME: incomplete
 // https://docs.microsoft.com/en-us/windows/win32/winprog64/file-system-redirector
+// C:\Windows\System32\* -> C:\Windows\SysWOW64\*
 pub fn system_module_path_to_wow64_path(system_module_path: &Path) -> anyhow::Result<PathBuf> {
-    let mut wow64_dir = get_wow64_dir()?;
-    wow64_dir.push(
-        system_module_path
-            .file_name()
-            .ok_or_else(|| anyhow!("Dll path has invalid format"))?,
-    );
+    let mut wow64_path = PathBuf::new();
 
-    Ok(wow64_dir)
+    for c in system_module_path.components() {
+        match c {
+            Component::Normal(name) => {
+                if name
+                    .to_str()
+                    .ok_or_else(|| anyhow!("Conversion failed"))?
+                    .to_ascii_lowercase()
+                    == "system32"
+                {
+                    wow64_path.push("syswow64");
+                } else {
+                    wow64_path.push(name);
+                }
+            }
+            Component::Prefix(prefix) => {
+                wow64_path.push(prefix.as_os_str());
+                wow64_path.push("\\");
+            }
+            _ => (),
+        }
+    }
+
+    Ok(wow64_path)
+}
+
+pub fn is_system_module(module_path: &Path) -> anyhow::Result<bool> {
+    Ok(module_path.starts_with(get_system_dir()?))
 }
