@@ -135,7 +135,11 @@ impl Process {
     }
 
     // FIXME: Won't work for manually mapped modules
-    pub fn module_entry_by_name(&self, name: &str) -> anyhow::Result<Option<MODULEENTRY32>> {
+    pub fn module_entry_by_name(
+        &self,
+        name: &str,
+        snapshot_flags: Option<SnapshotFlags>,
+    ) -> anyhow::Result<Option<MODULEENTRY32>> {
         // Ensure consistency - make lowercase and ensure .dll extension is present
         let name = Path::new(name)
             .with_extension("dll")
@@ -143,8 +147,11 @@ impl Process {
             .ok_or_else(|| anyhow!("Failed to convert Path to str"))?
             .to_ascii_lowercase();
 
+        let snapshot_flags = snapshot_flags
+            .unwrap_or(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32);
+
         let entry: Option<anyhow::Result<MODULEENTRY32>> = self
-            .snapshot(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32)?
+            .snapshot(snapshot_flags)?
             .module_entries(self.pid()?)
             .filter_map(|entry| {
                 let entry_name =

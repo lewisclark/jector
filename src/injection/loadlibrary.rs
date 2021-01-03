@@ -10,11 +10,8 @@ use std::env;
 use std::ffi::CString;
 use std::fs::File;
 use std::io::Write;
-use std::mem::size_of;
-use std::mem::transmute;
+use std::mem::{size_of, transmute};
 use winapi::shared::minwindef::MAX_PATH;
-
-const PTR_SIZE: usize = size_of::<usize>();
 
 pub fn inject_library(pid: u32, path: &str) -> anyhow::Result<usize> {
     // Open a handle to the target process
@@ -29,25 +26,31 @@ pub fn inject_library(pid: u32, path: &str) -> anyhow::Result<usize> {
         false,
     )?;
 
+    let is_wow64 = process.is_wow64()?;
+    let remote_process_ptr_size = if is_wow64 {
+        size_of::<u32>()
+    } else {
+        size_of::<u64>()
+    };
+
     // Allocate a buffer inside the target process to contain the path of dll
     let buffer = VirtualMem::alloc(
         &process,
         0,
-        MAX_PATH as usize + PTR_SIZE,
+        MAX_PATH as usize + remote_process_ptr_size,
         AllocType::MEM_COMMIT | AllocType::MEM_RESERVE,
         ProtectFlag::PAGE_READWRITE,
     )?;
 
     // Write file path to buffer
     let path_bytes = CString::new(path)?.into_bytes();
-    buffer.write_memory(path_bytes.as_slice(), PTR_SIZE)?;
+    buffer.write_memory(path_bytes.as_slice(), remote_process_ptr_size)?;
 
     // Obtain the address of LoadLibrary
-    // TODO: Use Library::load_external when it is stable with proc_address_external
-    let libkernel32 = Module::load_internal("kernel32.dll")?;
+    let libkernel32 = Module::find_or_load_external(process.pid()?, "kernel32.dll", None)?;
     let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
-    let stub = if process.is_wow64()? {
+    let stub = if is_wow64 {
         create_stub_32(loadlibrary, buffer.address())
     } else {
         create_stub_64(loadlibrary, buffer.address())
@@ -79,17 +82,25 @@ pub fn inject_library(pid: u32, path: &str) -> anyhow::Result<usize> {
     )?;
 
     // Wait for the thread to finish execution
-    thr.wait(10000)?;
+    thr.wait(99999999)?;
 
     // Read handle from the buffer that was written by the stub
     let handle = {
-        let mut buf: [u8; PTR_SIZE] = [0; PTR_SIZE];
-        buffer.read_memory(&mut buf, 0)?;
+        if is_wow64 {
+            let mut buf = [0; size_of::<u32>()];
+            buffer.read_memory(&mut buf, 0)?;
 
-        usize::from_ne_bytes(buf)
+            u32::from_ne_bytes(buf) as usize
+        } else {
+            let mut buf = [0; size_of::<u64>()];
+            buffer.read_memory(&mut buf, 0)?;
+
+            u64::from_ne_bytes(buf) as usize
+        }
     };
 
-    ensure!(thr.exit_code()? == 0 && handle != 0);
+    ensure!(thr.exit_code()? == 0);
+    ensure!(handle != 0, "LoadLibraryA returned a NULL handle");
 
     Ok(handle)
 }
@@ -134,7 +145,7 @@ fn create_stub_64(
     dynasm!(assembler
         ; .arch x64
         ; mov r8, QWORD loadlibrary as _                        // Move LoadLibraryA into r8
-        ; mov rcx, QWORD (buffer_address + PTR_SIZE) as _     // Move library name to rcx
+        ; mov rcx, QWORD (buffer_address + size_of::<u64>()) as _     // Move library name to rcx
         ; sub rsp, 40                                         // Allocate 32 bytes of shadow space
         // Had to add 8 bytes to it because a movaps ins was crashing because of stack misalignment
         ; call r8                                               // Call LoadLibraryA
@@ -159,7 +170,7 @@ fn create_stub_32(
         ; .arch x86
         ; push ebp
         ; mov ebp, esp
-        ; lea eax, [(buffer_address + PTR_SIZE) as _]
+        ; lea eax, [(buffer_address + size_of::<u32>()) as _]
         ; push eax
         ; mov eax, DWORD loadlibrary as _
         ; call eax
