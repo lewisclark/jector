@@ -7,9 +7,20 @@ use std::mem::size_of;
 use std::path::{Component, Path, PathBuf};
 use winapi::shared::minwindef::{HMODULE, LPVOID};
 use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
-use winapi::um::psapi::{GetModuleFileNameExA, GetModuleInformation, MODULEINFO};
+use winapi::um::psapi::{
+    self, EnumProcessModulesEx, GetModuleFileNameExA, GetModuleInformation, MODULEINFO,
+};
 use winapi::um::sysinfoapi::GetSystemDirectoryA;
 use winapi::um::winnt::LPSTR;
+
+bitflags! {
+    pub struct ModulesFilterFlag: u32 {
+        const LIST_MODULES_32BIT = psapi::LIST_MODULES_32BIT;
+        const LIST_MODULES_64BIT = psapi::LIST_MODULES_64BIT;
+        const LIST_MODULES_ALL = psapi::LIST_MODULES_ALL;
+        const LIST_MODULES_DEFAULT = psapi::LIST_MODULES_DEFAULT;
+    }
+}
 
 pub struct Module {
     handle: HMODULE,
@@ -39,8 +50,8 @@ impl Module {
             .ok_or_else(|| anyhow!("Failed to convert"))?;
 
         // Return the already loaded module if it exists
-        if let Some(entry) = process.module_entry_by_name(&file_name)? {
-            return Ok(unsafe { Self::from_handle(entry.hModule, pid, true) });
+        if let Some(module) = process.module_by_name(&file_name)? {
+            return Ok(module);
         }
 
         // TODO: Manual map external libraries when stable
@@ -178,6 +189,86 @@ impl Module {
         buf.resize(ret, 0);
 
         Ok(Path::new(&CString::new(buf)?.into_string()?.to_ascii_lowercase()).to_path_buf())
+    }
+
+    pub fn file_name(&self) -> anyhow::Result<String> {
+        Ok(self
+            .path()?
+            .file_name()
+            .ok_or_else(|| anyhow!("Failed to get file name from module path"))?
+            .to_str()
+            .ok_or_else(|| anyhow!("Failed to convert OsStr path to str"))?
+            .to_string())
+    }
+}
+
+// Modules struct
+// Iterates through the loaded modules in a process
+pub struct Modules {
+    modules: Vec<HMODULE>,
+    pid: u32,
+    is_external: bool,
+}
+
+impl Modules {
+    pub fn new(
+        pid: u32,
+        len_needed: Option<usize>,
+        filter_flag: Option<ModulesFilterFlag>,
+    ) -> anyhow::Result<Self> {
+        let process = Process::from_pid(
+            pid,
+            ProcessAccess::PROCESS_QUERY_INFORMATION | ProcessAccess::PROCESS_VM_READ,
+            false,
+        )?;
+
+        let filter_flag = filter_flag.unwrap_or(match process.is_wow64()? {
+            true => ModulesFilterFlag::LIST_MODULES_32BIT,
+            false => ModulesFilterFlag::LIST_MODULES_ALL,
+        });
+
+        let mut buf: Vec<HMODULE> = vec![std::ptr::null_mut(); len_needed.unwrap_or(0x200)];
+        let bytes_allocated = buf.len() * size_of::<HMODULE>();
+
+        let mut bytes_needed: u32 = 0;
+        let ret = unsafe {
+            EnumProcessModulesEx(
+                process.handle(),
+                buf.as_mut_ptr() as *mut HMODULE,
+                bytes_allocated as u32,
+                &mut bytes_needed,
+                filter_flag.bits(),
+            )
+        };
+
+        ensure!(ret != 0, function_call_failure!("EnumProcessModulesEx"));
+
+        let len_needed = bytes_needed as usize * size_of::<HMODULE>();
+        if len_needed > buf.len() {
+            Self::new(pid, Some(len_needed), Some(filter_flag))
+        } else {
+            buf.resize(len_needed, std::ptr::null_mut());
+            buf.reverse();
+
+            Ok(Self {
+                modules: buf,
+                pid,
+                is_external: process.is_external(),
+            })
+        }
+    }
+}
+
+impl Iterator for Modules {
+    type Item = Module;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.modules.pop() {
+            Some(module_handle) => {
+                Some(unsafe { Module::from_handle(module_handle, self.pid, self.is_external) })
+            }
+            None => None,
+        }
     }
 }
 

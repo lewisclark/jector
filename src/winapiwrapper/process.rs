@@ -1,7 +1,7 @@
 use super::error::WinApiError;
+use super::module::{Module, Modules, ModulesFilterFlag};
 use super::snapshot::{Snapshot, SnapshotFlags};
 use super::virtualmem::ProtectFlag;
-use std::ffi::CStr;
 use std::mem::size_of;
 use std::ops::Drop;
 use std::path::Path;
@@ -14,7 +14,6 @@ use winapi::um::processthreadsapi::{
     GetCurrentProcess, GetCurrentProcessId, GetProcessId, OpenProcess,
 };
 use winapi::um::psapi::{EnumProcesses, GetModuleFileNameExA};
-use winapi::um::tlhelp32::MODULEENTRY32;
 use winapi::um::winnt::{self, HANDLE, IMAGE_FILE_MACHINE_UNKNOWN, LPSTR};
 use winapi::um::wow64apiset::IsWow64Process2;
 
@@ -168,7 +167,7 @@ impl Process {
     }
 
     // FIXME: Won't work for manually mapped modules
-    pub fn module_entry_by_name(&self, name: &str) -> anyhow::Result<Option<MODULEENTRY32>> {
+    pub fn module_by_name(&self, name: &str) -> anyhow::Result<Option<Module>> {
         let name = Path::new(name)
             .with_extension("dll")
             .to_str()
@@ -177,26 +176,23 @@ impl Process {
 
         // kernel32.dll is a weird module in wow64 processes
         // Seems like it is excluded from TH32CS_SNAPMODULE32 even though it is 32-bit
-        let snapshot_flags = if name.contains("kernel32.dll") || !self.is_wow64()? {
-            SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32
+        let filter_flags = if name.contains("kernel32.dll") || !self.is_wow64()? {
+            ModulesFilterFlag::LIST_MODULES_ALL
         } else {
-            SnapshotFlags::TH32CS_SNAPMODULE32
+            ModulesFilterFlag::LIST_MODULES_32BIT
         };
 
-        Ok(self
-            .snapshot(snapshot_flags)?
-            .module_entries(self.pid()?)
-            .find(|entry| {
-                let module_name = unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }.to_str();
-
-                if let Ok(module_name) = module_name {
-                    if module_name.to_ascii_lowercase().contains(&name) {
+        Ok(
+            Modules::new(self.pid()?, None, Some(filter_flags))?.find(|module| {
+                if let Ok(module_file_name) = module.file_name() {
+                    if module_file_name.contains(&name) {
                         return true;
                     }
                 }
 
                 false
-            }))
+            }),
+        )
     }
 
     pub fn is_wow64(&self) -> anyhow::Result<bool> {
