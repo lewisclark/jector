@@ -8,8 +8,9 @@ use std::{ffi::c_void, mem, path::Path, slice};
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID, TRUE};
 use winapi::um::winnt::{
-    DLL_PROCESS_ATTACH, IMAGE_REL_BASED_ABSOLUTE, IMAGE_REL_BASED_DIR64, IMAGE_REL_BASED_HIGHLOW,
-    IMAGE_SCN_MEM_EXECUTE, IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
+    DLL_PROCESS_ATTACH, IMAGE_REL_BASED_ABSOLUTE, IMAGE_REL_BASED_DIR64, IMAGE_REL_BASED_HIGH,
+    IMAGE_REL_BASED_HIGHADJ, IMAGE_REL_BASED_HIGHLOW, IMAGE_REL_BASED_LOW, IMAGE_SCN_MEM_EXECUTE,
+    IMAGE_SCN_MEM_READ, IMAGE_SCN_MEM_WRITE, PRUNTIME_FUNCTION,
 };
 
 type FnDllMain = unsafe extern "system" fn(HINSTANCE, DWORD, LPVOID) -> BOOL;
@@ -112,17 +113,20 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
                 let rva = block.rva_of(word) as usize;
 
                 match typ {
-                    IMAGE_REL_BASED_ABSOLUTE => {
-                        println!("Skipping base relocation for type ABSOLUTE")
-                    }
-                    IMAGE_REL_BASED_DIR64 => {
-                        let mut buf = [0_u8; 8];
+                    IMAGE_REL_BASED_ABSOLUTE => {}
+                    IMAGE_REL_BASED_HIGH | IMAGE_REL_BASED_HIGHADJ => {
+                        let mut buf = [0_u8; 2];
                         image_mem.read_memory(&mut buf, rva)?;
 
-                        let p = u64::from_ne_bytes(buf).wrapping_add(image_delta as u64);
+                        let p = u16::from_ne_bytes(buf).wrapping_add((image_delta >> 48) as u16);
                         image_mem.write_memory(&p.to_ne_bytes(), rva)?;
+                    }
+                    IMAGE_REL_BASED_LOW => {
+                        let mut buf = [0_u8; 2];
+                        image_mem.read_memory(&mut buf, rva)?;
 
-                        println!("Performed DIR64 base relocation at rva {:x}", rva);
+                        let p = u16::from_ne_bytes(buf).wrapping_add((image_delta & 0xffff) as u16);
+                        image_mem.write_memory(&p.to_ne_bytes(), rva)?;
                     }
                     IMAGE_REL_BASED_HIGHLOW => {
                         let mut buf = [0_u8; 4];
@@ -130,8 +134,13 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
 
                         let p = u32::from_ne_bytes(buf).wrapping_add(image_delta as u32);
                         image_mem.write_memory(&p.to_ne_bytes(), rva)?;
+                    }
+                    IMAGE_REL_BASED_DIR64 => {
+                        let mut buf = [0_u8; 8];
+                        image_mem.read_memory(&mut buf, rva)?;
 
-                        println!("Performed HIGHLOW base relocation at rva {:x}", rva);
+                        let p = u64::from_ne_bytes(buf).wrapping_add(image_delta as u64);
+                        image_mem.write_memory(&p.to_ne_bytes(), rva)?;
                     }
                     _ => unimplemented!("Base relocation type: {:x}", typ),
                 };
