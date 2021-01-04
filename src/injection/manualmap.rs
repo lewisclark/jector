@@ -1,15 +1,10 @@
 use crate::winapiwrapper::module::Module;
 use crate::winapiwrapper::process::{Process, ProcessAccess};
-use crate::winapiwrapper::snapshot::SnapshotFlags;
 use crate::winapiwrapper::thread::{self, Thread, ThreadCreationFlags};
 use crate::winapiwrapper::virtualmem::{AllocType, ProtectFlag, VirtualMem};
 use dynasmrt::{dynasm, DynasmApi, DynasmLabelApi, ExecutableBuffer};
-use pelite::image::IMAGE_DIRECTORY_ENTRY_EXCEPTION;
-use pelite::{pe64::imports::Import, PeFile, Wrap};
-use std::ffi::c_void;
-use std::mem;
-use std::path::Path;
-use std::slice;
+use pelite::{image::IMAGE_DIRECTORY_ENTRY_EXCEPTION, pe64::imports::Import, PeFile, Wrap};
+use std::{ffi::c_void, mem, path::Path, slice};
 use winapi::ctypes::c_void as winapic_void;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID, TRUE};
 use winapi::um::winnt::{
@@ -150,12 +145,6 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
     for descriptor in pe.imports()? {
         let module_path = descriptor.dll_name()?.to_str()?.to_ascii_lowercase();
         let module_path = Path::new(&module_path);
-
-        let snapshot_flags = match is_wow64 {
-            true => SnapshotFlags::TH32CS_SNAPMODULE32,
-            false => SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32,
-        };
-
         let module = Module::find_or_load_external(pid, &module_path)?;
 
         let mut thunk = descriptor.image().FirstThunk as usize;

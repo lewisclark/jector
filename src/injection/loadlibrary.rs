@@ -52,10 +52,9 @@ pub fn inject_library(pid: u32, path: &Path) -> anyhow::Result<usize> {
     let libkernel32 = Module::find_or_load_external(process.pid()?, Path::new("kernel32.dll"))?;
     let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
-    let stub = if is_wow64 {
-        create_stub_32(loadlibrary, buffer.address())
-    } else {
-        create_stub_64(loadlibrary, buffer.address())
+    let stub = match is_wow64 {
+        true => create_stub_32(loadlibrary, buffer.address()),
+        false => create_stub_64(loadlibrary, buffer.address()),
     }?;
 
     // Allocate a buffer for the stub code

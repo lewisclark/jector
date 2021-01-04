@@ -1,6 +1,5 @@
 use super::handleowner::HandleOwner;
 use super::process::{Process, ProcessAccess};
-use super::snapshot::SnapshotFlags;
 use super::WinApiError;
 use pelite::{pe64::exports::Export, PeFile};
 use std::ffi::CString;
@@ -13,7 +12,6 @@ use winapi::um::libloaderapi::{GetProcAddress, LoadLibraryA};
 use winapi::um::psapi::{GetModuleFileNameExA, GetModuleInformation, MODULEINFO};
 use winapi::um::sysinfoapi::GetSystemDirectoryA;
 use winapi::um::winnt::LPSTR;
-use winapi::um::wow64apiset::GetSystemWow64DirectoryA;
 
 pub struct Module {
     handle: HMODULE,
@@ -199,20 +197,6 @@ impl Module {
 pub fn get_system_dir() -> anyhow::Result<PathBuf> {
     let mut buf = vec![0; 0x200];
     let ret = unsafe { GetSystemDirectoryA(buf.as_mut_ptr() as LPSTR, buf.len() as u32) } as usize;
-
-    buf.resize(ret, 0);
-
-    let str_dir = CString::new(buf)?.into_string()?.to_ascii_lowercase();
-
-    Ok(Path::new(&str_dir).to_path_buf())
-}
-
-// Retrieves the WoW64 system directory
-// https://docs.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-getsystemwow64directorya
-pub fn get_wow64_dir() -> anyhow::Result<PathBuf> {
-    let mut buf = vec![0; 0x200];
-    let ret =
-        unsafe { GetSystemWow64DirectoryA(buf.as_mut_ptr() as LPSTR, buf.len() as u32) } as usize;
 
     buf.resize(ret, 0);
 
