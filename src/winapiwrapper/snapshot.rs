@@ -1,5 +1,4 @@
 use super::handleowner::HandleOwner;
-use super::WinApiError;
 use std::mem::size_of;
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::tlhelp32::CreateToolhelp32Snapshot;
@@ -17,7 +16,7 @@ impl Snapshot {
         let h = unsafe { CreateToolhelp32Snapshot(flags.bits(), pid) };
         ensure!(
             h != INVALID_HANDLE_VALUE,
-            WinApiError::FunctionCallFailure("CreateToolhelp32Snapshot".to_string())
+            function_call_failure!("CreateToolhelp32Snapshot"),
         );
 
         Ok(unsafe { Self::from_handle(h) })

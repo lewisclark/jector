@@ -1,6 +1,5 @@
 use super::handleowner::HandleOwner;
 use super::process::Process;
-use super::WinApiError;
 use std::ffi::c_void;
 use std::ptr;
 use winapi::ctypes::c_void as winapic_void;
@@ -48,7 +47,7 @@ impl Thread {
 
         ensure!(
             !handle.is_null(),
-            WinApiError::FunctionCallFailure("CreateRemoteThread".to_string())
+            function_call_failure!("CreateRemoteThread"),
         );
 
         Ok(Self { handle })
@@ -57,10 +56,7 @@ impl Thread {
     pub fn exit_code(&self) -> anyhow::Result<u32> {
         let mut code = 0;
         let ret = unsafe { GetExitCodeThread(self.handle, &mut code) };
-        ensure!(
-            ret != 0,
-            WinApiError::FunctionCallFailure("GetExitCodeThread".to_string())
-        );
+        ensure!(ret != 0, function_call_failure!("GetExitCodeThread"),);
 
         Ok(code)
     }
@@ -69,7 +65,7 @@ impl Thread {
         let ret = unsafe { WaitForSingleObject(self.handle, timeout) };
         ensure!(
             ret != WAIT_FAILED,
-            WinApiError::FunctionCallFailure("WaitForSingleObject".to_string())
+            function_call_failure!("WaitForSingleObject"),
         );
 
         Ok(ret)

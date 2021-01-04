@@ -1,4 +1,3 @@
-use super::WinApiError;
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::winnt::HANDLE;
 
@@ -19,9 +18,7 @@ pub trait HandleOwner {
         if ret != 0 {
             Ok(())
         } else {
-            Err(anyhow!(WinApiError::FunctionCallFailure(
-                "CloseHandle".to_string()
-            )))
+            Err(anyhow!(function_call_failure!("CloseHandle")))
         }
     }
 }

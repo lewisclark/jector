@@ -1,6 +1,6 @@
+use super::error::WinApiError;
 use super::handleowner::HandleOwner;
 use super::process::Process;
-use super::WinApiError;
 use std::ops::Drop;
 use winapi::shared::minwindef::LPVOID;
 use winapi::um::memoryapi::{VirtualAllocEx, VirtualFreeEx};
@@ -31,10 +31,7 @@ impl<'a> VirtualMem<'a> {
             )
         };
 
-        ensure!(
-            !mem.is_null(),
-            WinApiError::FunctionCallFailure("VirtualAllocEx".to_string())
-        );
+        ensure!(!mem.is_null(), function_call_failure!("VirtualAllocEx"));
 
         Ok(Self {
             process,
@@ -65,10 +62,7 @@ impl<'a> VirtualMem<'a> {
             )
         };
 
-        ensure!(
-            ret != 0,
-            WinApiError::FunctionCallFailure("VirtualFreeEx".to_string())
-        );
+        ensure!(ret != 0, function_call_failure!("VirtualFreeEx"),);
 
         Ok(())
     }

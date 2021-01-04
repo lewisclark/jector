@@ -1,6 +1,5 @@
 use super::handleowner::HandleOwner;
 use super::process::{Process, ProcessAccess};
-use super::WinApiError;
 use pelite::{pe64::exports::Export, PeFile};
 use std::ffi::CString;
 use std::fs::OpenOptions;
@@ -24,10 +23,7 @@ impl Module {
         let name = CString::new(name)?.into_raw();
         let handle = unsafe { LoadLibraryA(name) };
 
-        ensure!(
-            !handle.is_null(),
-            WinApiError::FunctionCallFailure("LoadLibraryA".to_string())
-        );
+        ensure!(!handle.is_null(), function_call_failure!("LoadLibraryA"),);
 
         Ok(unsafe { Self::from_handle(handle, Process::from_current().pid()?, false) })
     }
@@ -76,10 +72,7 @@ impl Module {
         let proc_name = CString::new(proc_name)?.into_raw();
         let addr = unsafe { GetProcAddress(self.handle, proc_name) };
 
-        ensure!(
-            !addr.is_null(),
-            WinApiError::FunctionCallFailure("GetProcAddress".to_string())
-        );
+        ensure!(!addr.is_null(), function_call_failure!("GetProcAddress"),);
 
         Ok(addr as usize)
     }
@@ -156,10 +149,7 @@ impl Module {
             )
         };
 
-        ensure!(
-            ret != 0,
-            WinApiError::FunctionCallFailure("GetModuleInformation".to_string())
-        );
+        ensure!(ret != 0, function_call_failure!("GetModuleInformation"),);
 
         Ok(info)
     }
@@ -183,7 +173,7 @@ impl Module {
 
         ensure!(
             ret != 0 && ret <= buf.len(),
-            WinApiError::FunctionCallFailure("GetModuleFileNameExA".to_string())
+            function_call_failure!("GetModuleFileNameExA"),
         );
 
         buf.resize(ret, 0);

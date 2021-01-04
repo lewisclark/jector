@@ -1,7 +1,7 @@
+use super::error::WinApiError;
 use super::handleowner::HandleOwner;
 use super::snapshot::{Snapshot, SnapshotFlags};
 use super::virtualmem::ProtectFlag;
-use super::WinApiError;
 use std::ffi::CStr;
 use std::ops::Drop;
 use std::path::Path;
@@ -21,10 +21,7 @@ impl Process {
     pub fn from_pid(pid: u32, access: ProcessAccess, inherit: bool) -> anyhow::Result<Self> {
         let handle = unsafe { OpenProcess(access.bits(), inherit as i32, pid) };
 
-        ensure!(
-            !handle.is_null(),
-            WinApiError::FunctionCallFailure("OpenProcess".to_string())
-        );
+        ensure!(!handle.is_null(), function_call_failure!("OpenProcess"),);
 
         Ok(Self { handle })
     }
@@ -36,10 +33,7 @@ impl Process {
     pub fn pid(&self) -> anyhow::Result<u32> {
         let pid = unsafe { GetProcessId(self.handle) };
 
-        ensure!(
-            pid != 0,
-            WinApiError::FunctionCallFailure("GetProcessId".to_string())
-        );
+        ensure!(pid != 0, function_call_failure!("GetProcessId"),);
 
         Ok(pid)
     }
@@ -68,10 +62,7 @@ impl Process {
             (ret, num_bytes_written)
         };
 
-        ensure!(
-            ret != 0,
-            WinApiError::FunctionCallFailure("WriteProcessMemory".to_string())
-        );
+        ensure!(ret != 0, function_call_failure!("WriteProcessMemory"),);
 
         Ok(num_bytes_written)
     }
@@ -97,10 +88,7 @@ impl Process {
             )
         };
 
-        ensure!(
-            ret != 0,
-            WinApiError::FunctionCallFailure("ReadProcessMemory".to_string())
-        );
+        ensure!(ret != 0, function_call_failure!("ReadProcessMemory"),);
 
         Ok(num_bytes_read)
     }
@@ -126,10 +114,7 @@ impl Process {
             )
         };
 
-        ensure!(
-            ret != 0,
-            WinApiError::FunctionCallFailure("VirtualProtectEx".to_string())
-        );
+        ensure!(ret != 0, function_call_failure!("VirtualProtectEx"),);
 
         Ok(old_protect)
     }
@@ -172,10 +157,7 @@ impl Process {
         let ret =
             unsafe { IsWow64Process2(self.handle, &mut process_machine, &mut native_machine) };
 
-        ensure!(
-            ret != 0,
-            WinApiError::FunctionCallFailure("IsWow64Process2".to_string())
-        );
+        ensure!(ret != 0, function_call_failure!("IsWow64Process2"),);
 
         Ok(process_machine != IMAGE_FILE_MACHINE_UNKNOWN)
     }
