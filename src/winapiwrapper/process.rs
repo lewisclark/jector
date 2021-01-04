@@ -1,6 +1,5 @@
 use super::error::WinApiError;
 use super::module::{Module, Modules, ModulesFilterFlag};
-use super::snapshot::{Snapshot, SnapshotFlags};
 use super::virtualmem::ProtectFlag;
 use std::mem::size_of;
 use std::ops::Drop;
@@ -79,10 +78,6 @@ impl Process {
         ensure!(pid != 0, function_call_failure!("GetProcessId"),);
 
         Ok(pid)
-    }
-
-    pub fn snapshot(&self, flags: SnapshotFlags) -> anyhow::Result<Snapshot> {
-        Snapshot::from_pid(self.pid()?, flags)
     }
 
     pub fn is_external(&self) -> bool {

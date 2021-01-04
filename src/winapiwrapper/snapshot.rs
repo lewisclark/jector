@@ -48,6 +48,10 @@ impl Snapshot {
 
         Ok(())
     }
+
+    pub fn handle(&self) -> HANDLE {
+        self.handle
+    }
 }
 
 impl Drop for Snapshot {
