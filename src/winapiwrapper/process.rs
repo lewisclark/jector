@@ -140,7 +140,6 @@ impl Process {
         name: &str,
         snapshot_flags: Option<SnapshotFlags>,
     ) -> anyhow::Result<Option<MODULEENTRY32>> {
-        // Ensure consistency - make lowercase and ensure .dll extension is present
         let name = Path::new(name)
             .with_extension("dll")
             .to_str()
@@ -150,32 +149,23 @@ impl Process {
         let snapshot_flags = snapshot_flags
             .unwrap_or(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32);
 
-        let entry: Option<anyhow::Result<MODULEENTRY32>> = self
+        let entry: Option<MODULEENTRY32> = self
             .snapshot(snapshot_flags)?
             .module_entries(self.pid()?)
-            .filter_map(|entry| {
-                let entry_name =
-                    match unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }.to_str() {
-                        Ok(name) => name,
-                        Err(e) => {
-                            return Some(Err(anyhow!(
-                                "Failed to construct CStr from MODULEENTRY32.szModule: {}",
-                                e
-                            )))
-                        }
-                    }
-                    .to_ascii_lowercase();
+            .find(|entry| {
+                let module_name = unsafe { CStr::from_ptr(entry.szModule.as_ptr()) }.to_str();
 
-                if entry_name == name {
-                    Some(Ok(entry))
-                } else {
-                    None
+                if let Ok(module_name) = module_name {
+                    if module_name.to_ascii_lowercase().contains(&name) {
+                        return true;
+                    }
                 }
-            })
-            .next();
+
+                false
+            });
 
         Ok(match entry {
-            Some(entry) => Some(entry?),
+            Some(entry) => Some(entry),
             None => None,
         })
     }
