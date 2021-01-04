@@ -117,6 +117,7 @@ pub struct Threads {
 }
 
 impl Threads {
+    #[allow(dead_code)]
     pub fn new(pid: u32) -> anyhow::Result<Self> {
         let snapshot = Snapshot::from_pid(pid, SnapshotFlags::TH32CS_SNAPTHREAD)?;
 
