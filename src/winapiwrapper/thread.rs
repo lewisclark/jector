@@ -1,4 +1,3 @@
-use super::handleowner::HandleOwner;
 use super::process::Process;
 use std::ffi::c_void;
 use std::ptr;
@@ -69,20 +68,6 @@ impl Thread {
         );
 
         Ok(ret)
-    }
-}
-
-impl HandleOwner for Thread {
-    unsafe fn from_handle(handle: HANDLE) -> Thread {
-        Self { handle }
-    }
-
-    fn handle(&self) -> HANDLE {
-        self.handle
-    }
-
-    fn is_handle_closable(&self) -> bool {
-        false
     }
 }
 

@@ -1,5 +1,5 @@
-use super::handleowner::HandleOwner;
 use std::mem::size_of;
+use winapi::um::handleapi::CloseHandle;
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::tlhelp32::CreateToolhelp32Snapshot;
 use winapi::um::tlhelp32::{
@@ -12,6 +12,10 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    pub unsafe fn from_handle(handle: HANDLE) -> Self {
+        Self { handle }
+    }
+
     pub fn from_pid(pid: u32, flags: SnapshotFlags) -> anyhow::Result<Self> {
         let h = unsafe { CreateToolhelp32Snapshot(flags.bits(), pid) };
         ensure!(
@@ -25,25 +29,22 @@ impl Snapshot {
     pub fn module_entries(self, pid: u32) -> SnapshotModuleEntries {
         SnapshotModuleEntries::new(self, pid)
     }
-}
 
-impl HandleOwner for Snapshot {
-    unsafe fn from_handle(handle: HANDLE) -> Self {
-        Self { handle }
-    }
+    pub fn close(&self) -> anyhow::Result<()> {
+        // -1 is the pseudo handle for the current process and need not be closed
+        if self.handle as isize != 1 {
+            let ret = unsafe { CloseHandle(self.handle) };
 
-    fn handle(&self) -> HANDLE {
-        self.handle
-    }
+            ensure!(ret != 0, function_call_failure!("CloseHandle"));
+        }
 
-    fn is_handle_closable(&self) -> bool {
-        true
+        Ok(())
     }
 }
 
 impl Drop for Snapshot {
     fn drop(&mut self) {
-        self.close_handle().unwrap();
+        self.close().unwrap();
     }
 }
 
@@ -62,9 +63,9 @@ impl Iterator for SnapshotThreadEntries {
         let ret = if self.is_first {
             self.is_first = false;
 
-            unsafe { Thread32First(self.snapshot.handle(), &mut thread_entry) }
+            unsafe { Thread32First(self.snapshot.handle, &mut thread_entry) }
         } else {
-            unsafe { Thread32Next(self.snapshot.handle(), &mut thread_entry) }
+            unsafe { Thread32Next(self.snapshot.handle, &mut thread_entry) }
         };
 
         match ret {
@@ -102,9 +103,9 @@ impl Iterator for SnapshotModuleEntries {
         let ret = if self.is_first {
             self.is_first = false;
 
-            unsafe { Module32First(self.snapshot.handle(), &mut entry) }
+            unsafe { Module32First(self.snapshot.handle, &mut entry) }
         } else {
-            unsafe { Module32Next(self.snapshot.handle(), &mut entry) }
+            unsafe { Module32Next(self.snapshot.handle, &mut entry) }
         };
 
         match ret {

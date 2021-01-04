@@ -1,5 +1,4 @@
 use super::error::WinApiError;
-use super::handleowner::HandleOwner;
 use super::process::Process;
 use std::ops::Drop;
 use winapi::shared::minwindef::LPVOID;
