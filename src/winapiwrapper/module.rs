@@ -39,47 +39,20 @@ impl Module {
         path: &Path,
         snapshot_flags: Option<SnapshotFlags>,
     ) -> anyhow::Result<Self> {
-        let path = path.with_extension("dll");
+        let process =
+            Process::from_pid(pid, ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION, false)?;
+
+        let path = fix_module_path(path, process.is_wow64()?)?;
         let file_name = path
             .file_name()
             .ok_or_else(|| anyhow!("Expected a filename"))?
             .to_str()
             .ok_or_else(|| anyhow!("Failed to convert"))?;
 
-        let process =
-            Process::from_pid(pid, ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION, false)?;
-
         // Return the already loaded module if it exists
         if let Some(entry) = process.module_entry_by_name(&file_name, snapshot_flags)? {
             return Ok(unsafe { Self::from_handle(entry.hModule, pid, true) });
         }
-
-        // Do path conversion magic for c runtime libraries and wow64 libraries
-        let path = match file_name.starts_with("api-ms-win-crt-") {
-            true => {
-                let mut dir = if process.is_wow64()? {
-                    get_wow64_dir()
-                } else {
-                    get_system_dir()
-                }?;
-
-                dir.push(format!("downlevel\\{}", file_name));
-
-                dir
-            }
-            false => {
-                // TODO only do this if it's a system module
-                let mut dir = if process.is_wow64()? {
-                    get_wow64_dir()
-                } else {
-                    get_system_dir()
-                }?;
-
-                dir.push(file_name.to_string());
-
-                dir
-            }
-        };
 
         // TODO: Manual map external libraries when stable
         match crate::injection::loadlibrary::inject_library(pid, &path) {
@@ -134,12 +107,7 @@ impl Module {
             false,
         )?;
 
-        let path = self.path()?;
-        let path = if is_system_module(&path)? && proc.is_wow64()? {
-            system_module_path_to_wow64_path(&path)?
-        } else {
-            path
-        };
+        let path = fix_module_path(&self.path()?, proc.is_wow64()?)?;
 
         let dll_bytes = {
             let mut file = OpenOptions::new().read(true).open(&path)?;
@@ -298,4 +266,38 @@ pub fn system_module_path_to_wow64_path(system_module_path: &Path) -> anyhow::Re
 
 pub fn is_system_module(module_path: &Path) -> anyhow::Result<bool> {
     Ok(module_path.starts_with(get_system_dir()?))
+}
+
+// Applies transformations to the path, such as
+// c runtime path correction, system path to wow64 path correction
+// Input paths must be lowercase
+// TODO: file name to full path - imports only contain dll file name so we need to search
+// https://docs.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order
+fn fix_module_path(path: &Path, is_wow64_module: bool) -> anyhow::Result<PathBuf> {
+    let mut path = path.to_path_buf();
+    path.set_extension("dll");
+
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| anyhow!("Module path did not contain a filename"))?
+        .to_str()
+        .ok_or_else(|| anyhow!("Failed to convert OsStr to str"))?
+        .to_ascii_lowercase();
+
+    // Steps
+    // If just file name, find file and convert to full path
+    // If file_name is a crt library, set path to C:\Windows\System32\downlevel\<lib>
+    // If is_system_module && is_wow64_module, prepend wow64_dir to path
+
+    if file_name.starts_with("api-ms-win-crt-") {
+        path.push(get_system_dir()?);
+        path.push("downlevel\\");
+        path.push(file_name);
+    }
+
+    if is_wow64_module && is_system_module(&path)? {
+        path = system_module_path_to_wow64_path(&path)?;
+    }
+
+    Ok(path)
 }
