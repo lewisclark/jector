@@ -34,11 +34,7 @@ impl Module {
         Ok(unsafe { Self::from_handle(handle, Process::from_current().pid()?, false) })
     }
 
-    pub fn find_or_load_external(
-        pid: u32,
-        path: &Path,
-        snapshot_flags: Option<SnapshotFlags>,
-    ) -> anyhow::Result<Self> {
+    pub fn find_or_load_external(pid: u32, path: &Path) -> anyhow::Result<Self> {
         let process =
             Process::from_pid(pid, ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION, false)?;
 
@@ -50,7 +46,7 @@ impl Module {
             .ok_or_else(|| anyhow!("Failed to convert"))?;
 
         // Return the already loaded module if it exists
-        if let Some(entry) = process.module_entry_by_name(&file_name, snapshot_flags)? {
+        if let Some(entry) = process.module_entry_by_name(&file_name)? {
             return Ok(unsafe { Self::from_handle(entry.hModule, pid, true) });
         }
 
@@ -71,13 +67,9 @@ impl Module {
 
     // Takes snapshot_flags so proc_address_external can get module handles
     // For forwarded exports
-    pub fn proc_address(
-        &self,
-        proc_name: &str,
-        snapshot_flags: Option<SnapshotFlags>,
-    ) -> anyhow::Result<usize> {
+    pub fn proc_address(&self, proc_name: &str) -> anyhow::Result<usize> {
         match self.is_external {
-            true => self.proc_address_external(proc_name, snapshot_flags),
+            true => self.proc_address_external(proc_name),
             false => self.proc_address_internal(proc_name),
         }
     }
@@ -96,11 +88,7 @@ impl Module {
 
     // We load system modules from disk because we know the file location
     // And the proc offset will be the same
-    fn proc_address_external(
-        &self,
-        proc_name: &str,
-        snapshot_flags: Option<SnapshotFlags>,
-    ) -> anyhow::Result<usize> {
+    fn proc_address_external(&self, proc_name: &str) -> anyhow::Result<usize> {
         let proc = Process::from_pid(
             self.pid_owning,
             ProcessAccess::PROCESS_QUERY_LIMITED_INFORMATION,
@@ -141,10 +129,9 @@ impl Module {
 
                 let (dll, fwd_proc_name) =
                     (v.get(0).unwrap().to_ascii_lowercase(), v.get(1).unwrap());
-                let lib =
-                    Self::find_or_load_external(self.pid_owning, Path::new(&dll), snapshot_flags)?;
+                let lib = Self::find_or_load_external(self.pid_owning, Path::new(&dll))?;
 
-                lib.proc_address_external(fwd_proc_name, snapshot_flags)
+                lib.proc_address_external(fwd_proc_name)
             }
         }
     }

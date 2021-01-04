@@ -135,21 +135,22 @@ impl Process {
     }
 
     // FIXME: Won't work for manually mapped modules
-    pub fn module_entry_by_name(
-        &self,
-        name: &str,
-        snapshot_flags: Option<SnapshotFlags>,
-    ) -> anyhow::Result<Option<MODULEENTRY32>> {
+    pub fn module_entry_by_name(&self, name: &str) -> anyhow::Result<Option<MODULEENTRY32>> {
         let name = Path::new(name)
             .with_extension("dll")
             .to_str()
             .ok_or_else(|| anyhow!("Failed to convert Path to str"))?
             .to_ascii_lowercase();
 
-        let snapshot_flags = snapshot_flags
-            .unwrap_or(SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32);
+        // kernel32.dll is a weird module in wow64 processes
+        // Seems like it is excluded from TH32CS_SNAPMODULE32 even though it is 32-bit
+        let snapshot_flags = if name.contains("kernel32.dll") || !self.is_wow64()? {
+            SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32
+        } else {
+            SnapshotFlags::TH32CS_SNAPMODULE32
+        };
 
-        let entry: Option<MODULEENTRY32> = self
+        Ok(self
             .snapshot(snapshot_flags)?
             .module_entries(self.pid()?)
             .find(|entry| {
@@ -162,12 +163,7 @@ impl Process {
                 }
 
                 false
-            });
-
-        Ok(match entry {
-            Some(entry) => Some(entry),
-            None => None,
-        })
+            }))
     }
 
     pub fn is_wow64(&self) -> anyhow::Result<bool> {

@@ -49,9 +49,8 @@ pub fn inject_library(pid: u32, path: &Path) -> anyhow::Result<usize> {
     buffer.write_memory(path_bytes.as_slice(), remote_process_ptr_size)?;
 
     // Obtain the address of LoadLibrary
-    let libkernel32 =
-        Module::find_or_load_external(process.pid()?, Path::new("kernel32.dll"), None)?;
-    let loadlibrary = libkernel32.proc_address("LoadLibraryA", None)?;
+    let libkernel32 = Module::find_or_load_external(process.pid()?, Path::new("kernel32.dll"))?;
+    let loadlibrary = libkernel32.proc_address("LoadLibraryA")?;
 
     let stub = if is_wow64 {
         create_stub_32(loadlibrary, buffer.address())

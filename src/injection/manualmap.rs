@@ -156,14 +156,14 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
             false => SnapshotFlags::TH32CS_SNAPMODULE | SnapshotFlags::TH32CS_SNAPMODULE32,
         };
 
-        let module = Module::find_or_load_external(pid, &module_path, Some(snapshot_flags))?;
+        let module = Module::find_or_load_external(pid, &module_path)?;
 
         let mut thunk = descriptor.image().FirstThunk as usize;
         for import in descriptor.int()? {
             let import_address = match import? {
                 Import::ByName { hint: _, name } => {
                     let proc_name = name.to_str()?;
-                    let proc_addr = module.proc_address(proc_name, Some(snapshot_flags))?;
+                    let proc_addr = module.proc_address(proc_name)?;
 
                     if is_wow64 {
                         println!("mdoule {:x}", module.info()?.lpBaseOfDll as usize);
@@ -360,7 +360,7 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
             rtl_add_function_table: unsafe {
                 mem::transmute::<usize, FnRtlAddFunctionTable>(
                     Module::find_or_load_internal("kernel32.dll")?
-                        .proc_address("RtlAddFunctionTable", None)?,
+                        .proc_address("RtlAddFunctionTable")?,
                 )
             },
         };
@@ -521,11 +521,7 @@ const OFFSET_LDRPHANDLETLSDATA64: usize = 0x46;
 
 fn get_ldrphandletlsdata(is_wow64: bool, process: &Process) -> anyhow::Result<usize> {
     let ntdll = if is_wow64 {
-        Module::find_or_load_external(
-            process.pid()?,
-            Path::new("ntdll.dll"),
-            Some(SnapshotFlags::TH32CS_SNAPMODULE32),
-        )
+        Module::find_or_load_external(process.pid()?, Path::new("ntdll.dll"))
     } else {
         Module::find_or_load_internal("ntdll.dll")
     }?;
