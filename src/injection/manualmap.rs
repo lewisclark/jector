@@ -155,7 +155,6 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
                     let proc_addr = module.proc_address(proc_name)?;
 
                     if is_wow64 {
-                        println!("mdoule {:x}", module.info()?.lpBaseOfDll as usize);
                         ensure!(
                             proc_addr <= u32::max_value() as usize,
                             anyhow!(

@@ -10,6 +10,7 @@ fn main() -> anyhow::Result<()> {
             ArgGroup::with_name("target")
                 .arg("pid")
                 .arg("window")
+                .arg("name")
                 .required(true),
         )
         .arg(
@@ -26,6 +27,14 @@ fn main() -> anyhow::Result<()> {
                 .long("window")
                 .value_name("window_name")
                 .help("The name of the window to inject into")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("name")
+                .short("n")
+                .long("name")
+                .value_name("process_name")
+                .help("The process file name to inject into")
                 .takes_value(true),
         )
         .arg(
@@ -61,8 +70,10 @@ fn main() -> anyhow::Result<()> {
         jector::inject_pid(pid.parse()?, &file_bytes, method)?;
     } else if let Some(window_name) = matches.value_of("window") {
         jector::inject_window(window_name, &file_bytes, method)?;
+    } else if let Some(process_name) = matches.value_of("name") {
+        jector::inject_process_name(process_name, &file_bytes, method)?;
     } else {
-        panic!("Expected either -p or -w arg");
+        panic!("Expected either -p, -w or -n");
     };
 
     Ok(())

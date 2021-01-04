@@ -1,33 +1,77 @@
 use super::error::WinApiError;
-use super::handleowner::HandleOwner;
 use super::snapshot::{Snapshot, SnapshotFlags};
 use super::virtualmem::ProtectFlag;
 use std::ffi::CStr;
+use std::mem::size_of;
 use std::ops::Drop;
 use std::path::Path;
+use std::path::PathBuf;
 use winapi::ctypes::c_void;
-use winapi::shared::minwindef::{LPCVOID, LPVOID};
+use winapi::shared::minwindef::{HMODULE, LPCVOID, LPVOID};
+use winapi::um::handleapi::CloseHandle;
 use winapi::um::memoryapi::{ReadProcessMemory, VirtualProtectEx, WriteProcessMemory};
-use winapi::um::processthreadsapi::{GetCurrentProcess, GetProcessId, OpenProcess};
+use winapi::um::processthreadsapi::{
+    GetCurrentProcess, GetCurrentProcessId, GetProcessId, OpenProcess,
+};
+use winapi::um::psapi::{EnumProcesses, GetModuleFileNameExA};
 use winapi::um::tlhelp32::MODULEENTRY32;
-use winapi::um::winnt::{self, HANDLE, IMAGE_FILE_MACHINE_UNKNOWN};
+use winapi::um::winnt::{self, HANDLE, IMAGE_FILE_MACHINE_UNKNOWN, LPSTR};
 use winapi::um::wow64apiset::IsWow64Process2;
 
+// ProcessAccess flags
+// https://docs.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
+bitflags! {
+    pub struct ProcessAccess: u32 {
+        const DELETE = winnt::DELETE;
+        const READ_CONTROL = winnt::READ_CONTROL;
+        const SYNCHRONIZE = winnt::SYNCHRONIZE;
+        const WRITE_DAC = winnt::WRITE_DAC;
+        const WRITE_OWNER = winnt::WRITE_OWNER;
+        const PROCESS_ALL_ACCESS = winnt::PROCESS_ALL_ACCESS;
+        const PROCESS_CREATE_PROCESS = winnt::PROCESS_CREATE_PROCESS;
+        const PROCESS_CREATE_THREAD = winnt::PROCESS_CREATE_THREAD;
+        const PROCESS_DUP_HANDLE = winnt::PROCESS_DUP_HANDLE;
+        const PROCESS_QUERY_INFORMATION = winnt::PROCESS_QUERY_INFORMATION;
+        const PROCESS_QUERY_LIMITED_INFORMATION = winnt::PROCESS_QUERY_LIMITED_INFORMATION;
+        const PROCESS_SET_INFORMATION = winnt::PROCESS_SET_INFORMATION;
+        const PROCESS_SET_QUOTA = winnt::PROCESS_SET_QUOTA;
+        const PROCESS_SUSPEND_RESUME = winnt::PROCESS_SUSPEND_RESUME;
+        const PROCESS_TERMINATE = winnt::PROCESS_TERMINATE;
+        const PROCESS_VM_OPERATION = winnt::PROCESS_VM_OPERATION;
+        const PROCESS_VM_READ = winnt::PROCESS_VM_READ;
+        const PROCESS_VM_WRITE = winnt::PROCESS_VM_WRITE;
+    }
+}
+
+// Process struct
 pub struct Process {
     handle: HANDLE,
+    is_external: bool,
 }
 
 impl Process {
+    pub unsafe fn from_handle(handle: HANDLE, is_external: bool) -> Self {
+        Self {
+            handle,
+            is_external,
+        }
+    }
+
     pub fn from_pid(pid: u32, access: ProcessAccess, inherit: bool) -> anyhow::Result<Self> {
         let handle = unsafe { OpenProcess(access.bits(), inherit as i32, pid) };
 
         ensure!(!handle.is_null(), function_call_failure!("OpenProcess"),);
 
-        Ok(Self { handle })
+        let is_external = pid != unsafe { GetCurrentProcessId() };
+
+        Ok(Self {
+            handle,
+            is_external,
+        })
     }
 
     pub fn from_current() -> Self {
-        unsafe { Process::from_handle(GetCurrentProcess()) }
+        unsafe { Process::from_handle(GetCurrentProcess(), false) }
     }
 
     pub fn pid(&self) -> anyhow::Result<u32> {
@@ -42,6 +86,10 @@ impl Process {
         Snapshot::from_pid(self.pid()?, flags)
     }
 
+    pub fn is_external(&self) -> bool {
+        self.is_external
+    }
+
     pub fn write_memory(&self, data: &[u8], address: usize) -> anyhow::Result<usize> {
         ensure!(
             address != 0,
@@ -52,7 +100,7 @@ impl Process {
             let mut num_bytes_written = 0;
 
             let ret = WriteProcessMemory(
-                self.handle(),
+                self.handle,
                 address as *mut c_void,
                 data.as_ptr() as *const c_void,
                 data.len(),
@@ -80,7 +128,7 @@ impl Process {
         let mut num_bytes_read = 0;
         let ret = unsafe {
             ReadProcessMemory(
-                self.handle(),
+                self.handle,
                 address as LPCVOID,
                 buffer.as_mut_ptr() as LPVOID,
                 buffer.len(),
@@ -161,50 +209,91 @@ impl Process {
 
         Ok(process_machine != IMAGE_FILE_MACHINE_UNKNOWN)
     }
+
+    pub fn handle(&self) -> HANDLE {
+        self.handle
+    }
+
+    pub fn close(&mut self) -> anyhow::Result<()> {
+        // -1 is the pseudo handle for the current process and need not be closed
+        if self.handle as isize != 1 {
+            let ret = unsafe { CloseHandle(self.handle) };
+
+            ensure!(ret != 0, function_call_failure!("CloseHandle"));
+        }
+
+        Ok(())
+    }
+
+    pub fn path(&self) -> anyhow::Result<PathBuf> {
+        let mut buf: Vec<u8> = vec![0; 0x200];
+        let ret = unsafe {
+            GetModuleFileNameExA(
+                self.handle,
+                std::ptr::null_mut() as HMODULE,
+                buf.as_mut_ptr() as LPSTR,
+                buf.len() as u32,
+            )
+        };
+
+        ensure!(ret != 0, function_call_failure!("GetModuleFileNameExA"));
+
+        buf.resize(ret as usize, 0);
+
+        let mut path = PathBuf::new();
+        path.push(&String::from_utf8(buf)?.to_ascii_lowercase());
+
+        Ok(path)
+    }
 }
 
 impl Drop for Process {
     fn drop(&mut self) {
-        self.close_handle().unwrap()
+        self.close().unwrap()
     }
 }
 
-impl HandleOwner for Process {
-    unsafe fn from_handle(handle: HANDLE) -> Self {
-        Self { handle }
-    }
+// Processes struct
+// Iteration over system processes
+pub struct Processes {
+    process_ids: Vec<u32>,
+}
 
-    fn handle(&self) -> HANDLE {
-        self.handle
-    }
+impl Processes {
+    pub fn new(buffer_len: Option<usize>) -> anyhow::Result<Self> {
+        let mut process_ids: Vec<u32> = vec![0; buffer_len.unwrap_or(0x200)];
+        let bytes_allocated = process_ids.len() * size_of::<u32>();
 
-    fn is_handle_closable(&self) -> bool {
-        // -1 is the pseudo handle for the current process and need not be closed
-        self.handle as isize != -1
+        let mut bytes_needed = 0;
+        let ret = unsafe {
+            EnumProcesses(
+                process_ids.as_mut_ptr(),
+                bytes_allocated as u32,
+                &mut bytes_needed,
+            )
+        };
+
+        ensure!(ret != 0, function_call_failure!("EnumProcesses"));
+
+        let bytes_needed = bytes_needed as usize;
+        let len_needed = bytes_needed / size_of::<u32>();
+
+        if bytes_needed > bytes_allocated {
+            Self::new(Some(len_needed))
+        } else {
+            process_ids.resize(len_needed, 0);
+            // Reverse so that the iterator pops from the front, not the back
+            process_ids.reverse();
+
+            Ok(Self { process_ids })
+        }
     }
 }
 
-// ProcessAccess flags
-// https://docs.microsoft.com/en-us/windows/win32/procthread/process-security-and-access-rights
-bitflags! {
-    pub struct ProcessAccess: u32 {
-        const DELETE = winnt::DELETE;
-        const READ_CONTROL = winnt::READ_CONTROL;
-        const SYNCHRONIZE = winnt::SYNCHRONIZE;
-        const WRITE_DAC = winnt::WRITE_DAC;
-        const WRITE_OWNER = winnt::WRITE_OWNER;
-        const PROCESS_ALL_ACCESS = winnt::PROCESS_ALL_ACCESS;
-        const PROCESS_CREATE_PROCESS = winnt::PROCESS_CREATE_PROCESS;
-        const PROCESS_CREATE_THREAD = winnt::PROCESS_CREATE_THREAD;
-        const PROCESS_DUP_HANDLE = winnt::PROCESS_DUP_HANDLE;
-        const PROCESS_QUERY_INFORMATION = winnt::PROCESS_QUERY_INFORMATION;
-        const PROCESS_QUERY_LIMITED_INFORMATION = winnt::PROCESS_QUERY_LIMITED_INFORMATION;
-        const PROCESS_SET_INFORMATION = winnt::PROCESS_SET_INFORMATION;
-        const PROCESS_SET_QUOTA = winnt::PROCESS_SET_QUOTA;
-        const PROCESS_SUSPEND_RESUME = winnt::PROCESS_SUSPEND_RESUME;
-        const PROCESS_TERMINATE = winnt::PROCESS_TERMINATE;
-        const PROCESS_VM_OPERATION = winnt::PROCESS_VM_OPERATION;
-        const PROCESS_VM_READ = winnt::PROCESS_VM_READ;
-        const PROCESS_VM_WRITE = winnt::PROCESS_VM_WRITE;
+impl Iterator for Processes {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.process_ids.pop()
     }
 }
