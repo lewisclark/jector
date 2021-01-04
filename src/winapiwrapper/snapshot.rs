@@ -1,8 +1,6 @@
 use super::handleowner::HandleOwner;
 use super::WinApiError;
 use std::mem::size_of;
-use std::ptr;
-use winapi::shared::minwindef::{BYTE, HMODULE};
 use winapi::um::handleapi::INVALID_HANDLE_VALUE;
 use winapi::um::tlhelp32::CreateToolhelp32Snapshot;
 use winapi::um::tlhelp32::{
@@ -60,15 +58,7 @@ impl Iterator for SnapshotThreadEntries {
     type Item = THREADENTRY32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut thread_entry = THREADENTRY32 {
-            dwSize: size_of::<THREADENTRY32>() as u32,
-            cntUsage: 0,
-            th32ThreadID: 0,
-            th32OwnerProcessID: 0,
-            tpBasePri: 0,
-            tpDeltaPri: 0,
-            dwFlags: 0,
-        };
+        let mut thread_entry = THREADENTRY32::default();
 
         let ret = if self.is_first {
             self.is_first = false;
@@ -106,18 +96,9 @@ impl Iterator for SnapshotModuleEntries {
     type Item = MODULEENTRY32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut entry = MODULEENTRY32 {
-            dwSize: size_of::<MODULEENTRY32>() as u32,
-            th32ModuleID: 0,
-            th32ProcessID: self.pid,
-            GlblcntUsage: 0,
-            ProccntUsage: 0,
-            modBaseAddr: ptr::null_mut::<BYTE>(),
-            modBaseSize: 0,
-            hModule: 0 as HMODULE,
-            szModule: [0; 256],
-            szExePath: [0; 260],
-        };
+        let mut entry = MODULEENTRY32::default();
+        entry.th32ProcessID = self.pid;
+        entry.dwSize = size_of::<MODULEENTRY32>() as u32;
 
         let ret = if self.is_first {
             self.is_first = false;
