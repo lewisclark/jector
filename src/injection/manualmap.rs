@@ -366,16 +366,16 @@ pub fn inject(pid: u32, pe: PeFile, image: &[u8]) -> anyhow::Result<usize> {
     };
 
     // Write LoaderInfo to loader buffer
-    let loaderinfo_bytes = match loader_info {
+    let loaderinfo_bytes = match &loader_info {
         Wrap::T32(loader_info) => unsafe {
             slice::from_raw_parts(
-                &loader_info as *const LoaderInfo32 as *const u8,
+                loader_info as *const LoaderInfo32 as *const u8,
                 mem::size_of::<LoaderInfo32>(),
             )
         },
         Wrap::T64(loader_info) => unsafe {
             slice::from_raw_parts(
-                &loader_info as *const LoaderInfo64 as *const u8,
+                loader_info as *const LoaderInfo64 as *const u8,
                 mem::size_of::<LoaderInfo64>(),
             )
         },
